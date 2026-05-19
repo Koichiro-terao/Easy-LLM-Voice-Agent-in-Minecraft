@@ -447,7 +447,6 @@ This project is provided under the MIT License. For details, see [LICENSE](./LIC
 
 Part of the code is based on modified code from [MineDojo/Voyager](https://github.com/MineDojo/Voyager), which is also provided under the MIT License.
 
-[easyllm]: https://legacy.curseforge.com/minecraft/mc-mods/easy-llm/files
-[easyllmvoice]: https://legacy.curseforge.com/minecraft/mc-mods/easy-llm-voice/files
-
+[easyllm]: https://www.curseforge.com/minecraft/mc-mods/easy-llm/files/all?page=1&pageSize=20&showAlphaFiles=hide
+[easyllmvoice]: https://www.curseforge.com/minecraft/mc-mods/easy-llm-voice/files/all?page=1&pageSize=20&showAlphaFiles=hide
 <!-- markdownlint-enable MD033 -->

@@ -447,7 +447,7 @@ AI エージェント 1 体（RealtimeSTT と VOICEVOX ENGINE を 1 つずつ）
 
 コードの一部は、同じく MIT ライセンスの下で提供されている [MineDojo/Voyager](https://github.com/MineDojo/Voyager) を改変して使用しています。
 
-[easyllm]: https://legacy.curseforge.com/minecraft/mc-mods/easy-llm/files
-[easyllmvoice]: https://legacy.curseforge.com/minecraft/mc-mods/easy-llm-voice/files
+[easyllm]: https://www.curseforge.com/minecraft/mc-mods/easy-llm/files/all?page=1&pageSize=20&showAlphaFiles=hide
+[easyllmvoice]: https://www.curseforge.com/minecraft/mc-mods/easy-llm-voice/files/all?page=1&pageSize=20&showAlphaFiles=hide
 
 <!-- markdownlint-enable MD033 -->
