@@ -1,0 +1,293 @@
+## Rules for Creating JavaScript Code
+Code:
+  1) Write an asynchronous function (async function) that takes `bot` as its only argument.  
+  2) Reuse the following convenient programs as much as possible:  
+    - To mine a block, use `mineBlock(bot, blockPosition, blockName)`. Do not use `bot.dig` directly.  
+    - To craft an item, use `craftItem(bot, name, craftingTablePos, count)`. Do not use `bot.craft` or `bot.recipesFor`.  
+    - To smelt an item, use `smeltItem(bot, name, furnacePos, count)`. Do not use `bot.openFurnace`.  
+    - To place a block, use `placeItem(bot, name, position)`. Do not use `bot.placeBlock`.  
+    - To give items to another player, use `giveItemToOther(bot, othername, item, num)`. Do not use `bot.toss`.  
+    - To move to a specific coordinate, use `goToPosition(bot, position)`. Do not use `bot.pathfinder.goto`.  
+    - To operate a lever, use `turnOnLever(bot, leverPos)` or `turnOffLever(bot, leverPos)`. Do not use `bot.activateBlock`.  
+    - If you need to express emotions, use `...EmoteExtention(bot)`. This extension uses an installed Mod.  
+
+  3) Your function will be reused to build more complex functions, so make it generic and reusable. Since the contents of the inventory may change later, check whether you have an item before using it. If you do not have it, reuse the convenient programs above to collect the necessary item.  
+  4) Functions in the “previous code” section are neither saved nor executed. Do not reuse functions from there.  
+  5) Anything defined outside the function will be ignored. Define all variables inside the function.  
+  6) When there is something to communicate to someone, call `bot.chat(mes)`.
+  7) When something cannot be found, use `exploreUntil(bot, direction, maxDistance, callback)` to explore. You should use this frequently before mining blocks or killing mobs. Choose a random direction every time. Do not always use the same direction such as (1, 0, 1).  
+  8) `bot.findBlocks` and `bot.findBlock` are prohibited. The blocks visible in your field of view are all the blocks that exist in the world.  
+  9) Do not write infinite loops or recursive functions.  
+  10) Do not register event listeners using `bot.on` or `bot.once`. They are completely unnecessary.  
+  11) Give the function a meaningful name so that the task can be inferred from the name.  
+  12) When speaking to other players, use `bot.chat(message)` and speak out loud. Do not whisper using `bot.chat("/tell otherPlayerName message")`.  
+  13) If you are waiting for someone to act or speak, finish all actions.  
+  14) If you want to give items to another player, always use `giveItemToOther(bot, othername, item, num)`. If you drop items on the ground, the other player may not pick them up.  
+  15) `bot.on`, `Promise`, and `bot.chat("/tp ...")` are prohibited.  
+  16) Do not use `bot.players` to obtain information about other players. Use only the information written in the prompt.
+  17) Do not use emojis in JavaScript.
+  18) Do not include unnecessary text such as comments, and reduce the number of characters.
+
+## Reference Programs
+
+The following are convenient programs written using the Mineflayer API.
+
+// Craft 8 oak_planks from 2 oak_log at craftingTable vec3(0, 40, 0) (do the recipe 2 times): 
+// const craftingTablePos = new Vec3(0, 40, 0);
+// craftItem(bot, "oak_planks", craftingTablePos, 2);
+// You must place a crafting table before calling this function
+async function craftItem(bot, name, craftingTablePos, count = 1) {
+    const item = mcData.itemsByName[name];
+
+    await bot.pathfinder.goto(
+        new GoalLookAtBlock(craftingTablePos, bot.world)
+    );
+    const craftingTable = bot.blockAt(craftingTablePos);
+    const recipe = bot.recipesFor(item.id, null, 1, craftingTable)[0];
+    await bot.craft(recipe, count, craftingTable);
+}
+
+// Call this function when you don't need to do anything at all.
+// await doNothing(bot)
+async function doNothing(bot) {
+    // do nothing    
+}
+async function backFlipEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function facePalmEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function cossackDanceEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function jumpAndWaveForwardEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function robloxPotionDanceEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function cryEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function pointFingerForwardEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+
+async function waveForwardEmoteExtention(bot) {
+    /* Implementation of this function is omitted. */
+}
+/*
+Explore until find an iron_ore, use Vec3(0, -1, 0) because iron ores are usually underground
+await exploreUntil(bot, new Vec3(0, -1, 0), 60, () => {
+    const iron_ore = bot.findBlock({
+        matching: mcData.blocksByName["iron_ore"].id,
+        maxDistance: 32,
+    });
+    return iron_ore;
+});
+
+Explore until find a pig, use Vec3(1, 0, 1) because pigs are usually on the surface
+let pig = await exploreUntil(bot, new Vec3(1, 0, 1), 60, () => {
+    const pig = bot.nearestEntity((entity) => {
+        return (
+            entity.name === "pig" &&
+            entity.position.distanceTo(bot.entity.position) < 32
+        );
+    });
+    return pig;
+});
+*/
+async function exploreUntil(bot, direction, maxTime = 60, callback) {
+    /*
+    Implementation of this function is omitted.
+    direction: Vec3, can only contain value of -1, 0 or 1
+    maxTime: number, the max time for exploration
+    callback: function, early stop condition, will be called each second, exploration will stop if return value is not null
+
+    Return: null if explore timeout, otherwise return the return value of callback
+    */
+}
+
+// give 2 diamonds to other player `mike`, giveItemToOther(bot, "mike", "diamond", 2)
+// Note that the bot must be CLOSE ENOUGH to the other player.
+// Get close to the other player before calling `giveItemToOther`.
+// othername must not be the bot itself.
+async function giveItemToOther(bot, othername, item, num) {
+    bot.chat(`/clear ${bot.entity.username} ${item} ${num}`)
+    bot.chat(`/give ${othername} ${item} ${num}`)
+    const success = true;
+    return success
+}
+
+//go to (1, -32, -92), goToPosition(bot, new Vec3(1, -32, -92))
+async function goToPosition(bot, position) {
+    const dist = 1;
+    await bot.pathfinder.goto(
+        new GoalNear(position.x, position.y, position.z, dist)
+    )
+}
+// Mine cobblestone at (0, 41, 8): mineBlock(bot, new Vec3(0, 41, 8), "cobblestone");
+async function mineBlock(bot, blockPosition, blockName) {
+    const block = bot.blockAt(blockPosition);
+    if (block.name !== blockName){
+        await think(bot, `The block at ${position} is not ${blockName}`)
+        return
+    }
+    await bot.pathfinder.goto(
+        new GoalLookAtBlock(blockPosition, bot.world, {})
+    );
+    const targets = [bot.blockAt(blockPosition)];
+    await bot.collectBlock.collect(targets, { ignoreNoPath: true });
+}
+
+// Following are some Goals you can use:
+new GoalNear(x, y, z, range); // Move the bot to a block within the specified range of the specified block. `x`, `y`, `z`, and `range` are `number`
+new GoalXZ(x, z); // Useful for long-range goals that don't have a specific Y level. `x` and `z` are `number`
+new GoalGetToBlock(x, y, z); // Not get into the block, but get directly adjacent to it. Useful for fishing, farming, filling bucket, and beds. `x`, `y`, and `z` are `number`
+new GoalFollow(entity, range); // Follow the specified entity within the specified range. `entity` is `Entity`, `range` is `number`
+new GoalPlaceBlock(position, bot.world, {}); // Position the bot in order to place a block. `position` is `Vec3`
+new GoalLookAtBlock(position, bot.world, {}); // Path into a position where a blockface of the block at position is visible. `position` is `Vec3`
+
+// These are other Mineflayer functions you can use:
+bot.isABed(bedBlock); // Return true if `bedBlock` is a bed
+bot.blockAt(position); // Return the block at `position`. `position` is `Vec3`
+
+// These are other Mineflayer async functions you can use:
+await bot.equip(item, destination); // Equip the item in the specified destination. `item` is `Item`, `destination` can only be "hand", "head", "torso", "legs", "feet", "off-hand"
+await bot.consume(); // Consume the item in the bot's hand. You must equip the item to consume first. Useful for eating food, drinking potions, etc.
+await bot.fish(); // Let bot fish. Before calling this function, you must first get to a water block and then equip a fishing rod. The bot will automatically stop fishing when it catches a fish
+await bot.sleep(bedBlock); // Sleep until sunrise. You must get to a bed block first
+await bot.activateBlock(block); // This is the same as right-clicking a block in the game. Useful for buttons, doors, etc. You must get to the block first
+await bot.lookAt(position); // Look at the specified position. You must go near the position before you look at it. To fill bucket with water, you must lookAt first. `position` is `Vec3`
+await bot.activateItem(); // This is the same as right-clicking to use the item in the bot's hand. Useful for using buckets, etc. You must equip the item to activate first
+await bot.useOn(entity); // This is the same as right-clicking an entity in the game. Useful for shearing sheep, equipping harnesses, etc. You must get to the entity first
+
+// Place a crafting_table near the player, Vec3(1, 0, 0) is just an example, you shouldn't always use that: placeItem(bot, "crafting_table", bot.entity.position.offset(1, 0, 0));
+async function placeItem(bot, name, position) {
+    const item = bot.inventory.findInventoryItem(mcData.itemsByName[name].id);
+    // find a reference block
+    const faceVectors = [
+        new Vec3(0, 1, 0),
+        new Vec3(0, -1, 0),
+        new Vec3(1, 0, 0),
+        new Vec3(-1, 0, 0),
+        new Vec3(0, 0, 1),
+        new Vec3(0, 0, -1),
+    ];
+    let referenceBlock = null;
+    let faceVector = null;
+    for (const vector of faceVectors) {
+        const block = bot.blockAt(position.minus(vector));
+        if (block?.name !== "air") {
+            referenceBlock = block;
+            faceVector = vector;
+            break;
+        }
+    }
+    // You must first go to the block position you want to place
+    await bot.pathfinder.goto(new GoalPlaceBlock(position, bot.world, {}));
+    // You must equip the item right before calling placeBlock
+    await bot.equip(item, "hand");
+    await bot.placeBlock(referenceBlock, faceVector);
+}
+
+// receive 2 diamonds from other player `mike`, receiveItemFromOther(bot, "mike", "diamond", 2)
+// Note that the bot must be CLOSE ENOUGH to the other player.
+// Get close to the other player before calling `receiveItemFromOther`.
+// othername must not be the bot itself.
+async function receiveItemFromOther(bot, othername, item, num) {
+    bot.chat(`/give ${bot.entity.username} ${item} ${num}`)
+    bot.chat(`/clear ${othername} ${item} ${num}`)
+    const success = true;
+    return success
+}
+
+// Smelt 1 raw_iron into 1 iron_ingot using 1 oak_planks as fuel at furnace vec3(0, 40, 0):
+// const furnacePos = new Vec3(0, 40, 0);
+// smeltItem(bot, "raw_iron", "oak_planks", furnacePos);
+// You must place a furnace before calling this function
+async function smeltItem(bot, itemName, fuelName, furnacePos, count = 1) {
+    const item = mcData.itemsByName[itemName];
+    const fuel = mcData.itemsByName[fuelName];
+    const furnaceBlock = bot.blockAt(furnacePos);
+    await bot.pathfinder.goto(
+        new GoalLookAtBlock(furnaceBlock.position, bot.world)
+    );
+    const furnace = await bot.openFurnace(furnaceBlock);
+    for (let i = 0; i < count; i++) {
+        await furnace.putFuel(fuel.id, null, 1);
+        await furnace.putInput(item.id, null, 1);
+        // Wait 12 seconds for the furnace to smelt the item
+        await bot.waitForTicks(12 * 20);
+        await furnace.takeOutput();
+    }
+    await furnace.close();
+}
+
+async function think(bot, msg){
+    bot.chat(`/tell @s ${msg}`);
+}
+// Get a torch from chest at (30, 65, 100): getItemFromChest(bot, new Vec3(30, 65, 100), {"torch": 1});
+// This function will work no matter how far the bot is from the chest.
+async function getItemFromChest(bot, chestPosition, itemsToGet) {
+    await moveToChest(bot, chestPosition);
+    const chestBlock = bot.blockAt(chestPosition);
+    const chest = await bot.openContainer(chestBlock);
+    for (const name in itemsToGet) {
+        const itemByName = mcData.itemsByName[name];
+        const item = chest.findContainerItem(itemByName.id);
+        await chest.withdraw(item.type, null, itemsToGet[name]);
+    }
+    await closeChest(bot, chestBlock);
+}
+// Deposit a torch into chest at (30, 65, 100): depositItemIntoChest(bot, new Vec3(30, 65, 100), {"torch": 1});
+// This function will work no matter how far the bot is from the chest.
+async function depositItemIntoChest(bot, chestPosition, itemsToDeposit) {
+    await moveToChest(bot, chestPosition);
+    const chestBlock = bot.blockAt(chestPosition);
+    const chest = await bot.openContainer(chestBlock);
+    for (const name in itemsToDeposit) {
+        const itemByName = mcData.itemsByName[name];
+        const item = bot.inventory.findInventoryItem(itemByName.id);
+        await chest.deposit(item.type, null, itemsToDeposit[name]);
+    }
+    await closeChest(bot, chestBlock);
+}
+
+async function turnOnLever(bot, leverPosition) {
+    await goToPosition(bot, leverPosition);
+    const block = bot.blockAt(leverPosition);
+    const isOn = block.properties?.powered === 'true';
+    if (isOn) {
+        await think(bot, 'Lever is already on.');
+        return;
+    }
+    await bot.activateBlock(block);
+}
+  
+async function turnOffLever(bot, leverPosition) {
+    await goToPosition(bot, leverPosition);
+    const block = bot.blockAt(leverPosition);
+    const isOff = block.properties?.powered === 'false';
+    if (isOff) {
+        await think(bot, 'Lever is already off.');
+        return;
+    }
+    await bot.activateBlock(block);
+}
+  
+## Response Format
+Write the response in the following format:
+RESPONSE FORMAT:
+Code:
+```javascript
+async function exec(bot) {
+    ...}
+```

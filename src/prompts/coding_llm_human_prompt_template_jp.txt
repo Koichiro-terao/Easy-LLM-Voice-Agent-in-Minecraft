@@ -1,0 +1,36 @@
+<Information>
+Thought:
+{{ branch | thought }}
+
+Chat log:
+{{ branch | chat_log }}
+
+Position:
+{{ branch | position( self_name ) }}
+
+Chest:
+{{ branch | chests }}
+
+Inventory:
+{{ branch | inventory(self_name) }}
+
+Other players:
+{{ branch | other_players(self_name) }}
+
+Blocks seen so far:
+{{ branch | blocks_and_visibilities(["chest"]) }}
+
+<History of player visibilities and actions>
+[My({{self_name}}'s) perspective]
+{{ branch | events_and_visibilities }}
+
+# あなたのタスク
+あなたが次に行う行動・発言を考えるにあたって、以下の内容をstepbystepで行ってください。
+    1.行動・発言内容生成
+      <Infomation>にある Minecraft での観測情報に基づいて、これから行うあなたの行動・発言を考える。
+      現実のほかに人たちがどのような考えを持って行動しようとしているかはわかりません。
+      生成するあなたが次に行う行動・発言は、[JavaScriptコード作成時のルール, 参考プログラム, 返答形式]に基づき、javascriptの形式で出力してください。
+      また、コミュニケーションをとるために、発言は必ず日本語で行ってください。
+      JavaScriptコードには、コメントを用いて、現在のstepの推定結果も含めてください。
+    
+    出力形式は必ず守ってください

@@ -1,0 +1,15 @@
+# node
+node_modules
+**/node_modules
+
+# logs
+npm-debug.log
+yarn-error.log
+
+# git
+.git
+.gitignore
+
+# docker
+Dockerfile
+.dockerignore

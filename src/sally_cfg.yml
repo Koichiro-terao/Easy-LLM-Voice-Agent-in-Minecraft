@@ -1,0 +1,55 @@
+agent:
+  agent_name: "sally"
+  agent_id: "BotPlayer"
+  speaker_id: 23
+  logs_dir: "logs"
+  prompts:
+    human:
+      generate_action: ./prompts/coding_llm_human_prompt_template_jp.txt
+    system:
+      primitive: ./prompts/coding_llm_system_prompt_template_jp.txt
+
+easy_llm:
+  host: 0.0.0.0
+  port: 7891
+
+minecraft_server:
+  host: localhost
+  port: 25565
+  server_id: localhost:25565
+
+mineflayer_server:
+  port: 3000
+
+minecraft:
+  offset: [0, 0, 0]
+  env_box:
+    min: [-20, -61, -20]
+    max: [20, -55, 20]
+  can_dig_when_move: false
+  move_timeout_sec: 120
+  stuck_check_interval_sec: 1
+  stuck_offset_range: 1
+
+openai:
+  api_key: sk-xxx
+  model_name: gpt-5.2
+  temperature: 0.7
+  request_timeout: 120
+  max_trial: 3
+
+easy_llm_voice:
+  host: 0.0.0.0
+  port: 8765
+
+opus:
+  sample_rate: 48000
+  frame_millis: 20
+  application: voip
+
+tts:
+  host: localhost
+  port: 50021
+  enable_interrogative_upspeak: true
+  output_sampling_rate: 48000
+  output_stereo: false

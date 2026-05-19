@@ -1,0 +1,26 @@
+# mod connection
+websocket-client
+websockets>=12.0
+requests>=2.32.0
+numpy>=1.26.0
+pyogg
+pyyaml
+av
+
+# llm
+javascript
+Jinja2
+langchain-openai
+langchain-core
+openai
+requests
+
+# Speech To Text use google speech
+PyAudio>=0.2.14
+google-cloud-speech>=2.27.0
+librosa>=0.10.2
+soundfile>=0.12.1
+unidic-lite>=1.0.8
+
+# Speech To Text use realtimeSTT
+RealtimeSTT[faster-whisper]

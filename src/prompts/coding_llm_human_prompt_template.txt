@@ -1,0 +1,35 @@
+<Information>
+Thought:
+{{ branch | thought }}
+
+Chat log:
+{{ branch | chat_log }}
+
+Position:
+{{ branch | position( self_name ) }}
+
+Chest:
+{{ branch | chests }}
+
+Inventory:
+{{ branch | inventory(self_name) }}
+
+Other players:
+{{ branch | other_players(self_name) }}
+
+Blocks seen so far:
+{{ branch | blocks_and_visibilities(["chest"]) }}
+
+<History of player visibilities and actions>
+[My({{self_name}}'s) perspective]
+{{ branch | events_and_visibilities }}
+
+# Your task
+When considering your next action or utterance, please proceed step by step as follows.
+   1. Generate action/utterance content
+      Based on the Minecraft observation information in <Information>, think about the action or utterance you will perform next.
+      You do not know what the real other_players is thinking or intending to do.
+      The action/utterance you generate next must be output in JavaScript format, based on [Rules for creating JavaScript code, Reference program, Response format].
+      Also, to communicate, all utterances must be in English.
+      In the JavaScript code, include comments describing the estimated results of the current step.
+   Be sure to strictly follow the output format.
