@@ -8,6 +8,12 @@
 Easy LLM Voice is a platform for developing AI agents that can play together with you in Minecraft.
 <br>It extends [Easy LLM Agent in Minecraft](https://github.com/Koichiro-terao/Easy-LLM-Agent-in-Minecraft), enabling AI agents built with Easy LLM Voice to access in-game information, use an LLM to decide on actions, generate utterances, and interact through voice dialogue.
 
+## Latest Updates
+
+### 2026-05-22
+- Removed restrictions on the functions available to the agent.
+- Reduced the likelihood of the agent failing to operate.
+
 ## What You Can Do with This Repository
 
 Implement an AI agent that can talk and play together with you in a Minecraft world.

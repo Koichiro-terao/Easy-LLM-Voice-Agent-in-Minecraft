@@ -1272,28 +1272,42 @@ def render_template_from_files(
 
 def build_world_config_from_first_blocks_data(blocks_data):
     if blocks_data.get("type") == "block_snapshot":
-        snapshot = blocks_data
+        snapshots = [blocks_data]
     else:
-        snapshot = next(item for item in blocks_data["items"] if item.get("type") == "block_snapshot")
+        snapshots = [
+            item for item in blocks_data["items"]
+            if item.get("type") == "block_snapshot"
+        ]
 
-    data = snapshot["data"]
-    bounds = data["bounds"]
+    snapshots.sort(key=lambda s: s["data"].get("sequence", 0))
+
+    if not snapshots:
+        raise ValueError("block_snapshot not found")
+
+    first = snapshots[0]
+    bounds = first["data"]["bounds"]
 
     blocks = []
     containers = []
-    for item in data["items"]:
-        pos = list(item["pos"])
-        block = item["block"]
-        entry = {
-            "position": pos,
-            "name": block["blockName"],
-            "stateId": block["stateId"],
-        }
-        if block.get("properties"):
-            entry["properties"] = block["properties"]
-        blocks.append(entry)
-        if block["blockName"] == "chest":
-            containers.append({"position": pos})
+
+    for snapshot in snapshots:
+        for item in snapshot["data"]["items"]:
+            pos = list(item["pos"])
+            block = item["block"]
+
+            entry = {
+                "position": pos,
+                "name": block["blockName"],
+                "stateId": block["stateId"],
+            }
+
+            if block.get("properties"):
+                entry["properties"] = block["properties"]
+
+            blocks.append(entry)
+
+            if block["blockName"] == "chest":
+                containers.append({"position": pos})
 
     return {
         "envBox": [
@@ -1301,7 +1315,7 @@ def build_world_config_from_first_blocks_data(blocks_data):
             [bounds["max"]["x"], bounds["max"]["y"], bounds["max"]["z"]],
         ],
         "state": {
-            "globalTick": snapshot.get("tick", -1),
+            "globalTick": first.get("tick", -1),
             "status": {},
             "blocks": {"__Vec3Map__": blocks},
             "containers": {"__Vec3Map__": containers},

@@ -6,6 +6,10 @@ run/
 *.bak
 
 minecraft_server_on_docker/__pycache__/
+minecraft_server_on_docker/_mods/1.21/easy-llm-fabric-1.0.0+mc1.21.jar
+minecraft_server_on_docker/_mods/1.21/fabric-api-0.102.0+1.21.jar
+minecraft_server_on_docker/_mods/1.21/voicechat-fabric-1.21.1-2.6.17.jar
+minecraft_server_on_docker/_mods/1.21/easy-llm-voice-fabric-1.0.0+mc1.21.jar
 minecraft_server_on_docker/flat/25565/
 
 mineflayer_server_on_docker/__pycache__/

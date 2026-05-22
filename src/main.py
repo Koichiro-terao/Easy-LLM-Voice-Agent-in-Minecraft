@@ -22,16 +22,7 @@ from modules.utils import make_file_logger, load_config, load_primitives, read_f
 
 __VERSION__ = "20260427_0658"
 
-DISALLOWED_EXPRESSIONS = [
-      {"expression":"bot.on(", "message":"Do not wait for other players' action. Do not use `bot.on` or `Promise`."},
-      {"expression":"Promise(", "message":"Do not wait for other players' action. Do not use `bot.on` or `Promise`."},
-      {"expression":"findBlock(", "message":"Do not use `findBlock()` or `findBlocks()`. Use specific coordinates instead to specify the goal."},
-      {"expression":"findBlocks(", "message":"Do not use `findBlock()` or `findBlocks()`. Use specific coordinates instead to specify the goal."},
-      {"expression":"while (", "message":"Do not write infinite loops."},
-      {"expression":"bot.players[", "message":"Do not use bot.players[playername]`"},
-      {"expression":"bot.nearestEntity(", "message":"Do not use bot.nearestEntity()"},
-      {"expression":"offset(", "message": "Do not use `position.offset()`. Use ..... instead."}
-    ]
+DISALLOWED_EXPRESSIONS = []
 
 ###############################################################
 @dataclass(frozen=True)

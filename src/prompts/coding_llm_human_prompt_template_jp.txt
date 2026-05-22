@@ -18,7 +18,7 @@ Other players:
 {{ branch | other_players(self_name) }}
 
 Blocks seen so far:
-{{ branch | blocks_and_visibilities(["chest"]) }}
+{{ branch | blocks_and_visibilities(["chest", "oak_log", "crafting_table"]) }}
 
 <History of player visibilities and actions>
 [My({{self_name}}'s) perspective]
