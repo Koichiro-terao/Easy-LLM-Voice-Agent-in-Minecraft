@@ -19,6 +19,9 @@ const stuckOffsetRange = workerData.stuckOffsetRange ?? 0.5;
 const createBotTimeoutSec = workerData.createBotTimeoutSec ?? 20;
 const logDir = workerData.logDir;
 
+// ダメージ・ノックバック関連のデバッグログを有効にする場合は true に変更する
+const DEBUG_DAMAGE = false;
+
 const logger = new WorkerLogger(parentPort)
 let bot;
 
@@ -44,8 +47,8 @@ function sendSignal(signal, data={}, errorMsg=null){
         errorMsg = null;
     }
     parentPort.postMessage({
-        type: "signal", 
-        id: signal, 
+        type: "signal",
+        id: signal,
         result:{data, errorMsg}
     });
 }
@@ -146,6 +149,69 @@ bot.once('spawn', async () => {
         }
     });
 
+    // ========== ダメージ調査ログ（DEBUG_DAMAGE=true の時のみ出力） ==========
+    if (DEBUG_DAMAGE) {
+        bot.on('health', () => {
+            const p = bot.entity.position, v = bot.entity.velocity;
+            logger.info(`[damage-debug] update_health: health=${bot.health.toFixed(1)} pos=(${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}) vel=(${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}) onGround=${bot.entity.onGround}`);
+        });
+        bot.on('forcedMove', () => {
+            const p = bot.entity.position, v = bot.entity.velocity;
+            logger.info(`[damage-debug] forcedMove: pos=(${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}) vel=(${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)})`);
+        });
+    }
+
+    // entity_velocity 受信後、サーバーへ送信する座標を数tick分記録する（DEBUG_DAMAGE=true の時のみ有効）
+    let logSendPackets = false;
+    let logSendTimer = null;
+    // 最後に正常送信できた座標を追跡
+    let lastValidPos = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z };
+    const origWrite = bot._client.write.bind(bot._client);
+    bot._client.write = (name, data) => {
+        // 【最終防衛ライン】NaN 座標をサーバーに送らない
+        if (['position', 'position_look'].includes(name)) {
+            if (!isFinite(data.x) || !isFinite(data.y) || !isFinite(data.z)) {
+                logger.warn(`[NaN-BLOCKED] ${name} x=${data.x} y=${data.y} z=${data.z} — packet dropped, resetting to (${lastValidPos.x.toFixed(3)},${lastValidPos.y.toFixed(3)},${lastValidPos.z.toFixed(3)})`);
+                // 最後に送信成功した有効な座標と速度にリセット
+                bot.entity.position.set(lastValidPos.x, lastValidPos.y, lastValidPos.z);
+                bot.entity.velocity.set(0, 0, 0);
+                return; // サーバーへ送らない
+            }
+            // 正常な座標を記録
+            lastValidPos = { x: data.x, y: data.y, z: data.z };
+        }
+        if (DEBUG_DAMAGE && logSendPackets && ['position', 'look', 'position_look', 'flying'].includes(name)) {
+            logger.info(`[send-packet] ${name}: x=${data.x != null ? data.x.toFixed(4) : 'n/a'} y=${data.y != null ? data.y.toFixed(4) : 'n/a'} z=${data.z != null ? data.z.toFixed(4) : 'n/a'} onGround=${data.onGround}`);
+        }
+        origWrite(name, data);
+    };
+    bot._client.on('entity_velocity', (packet) => {
+        const rawVX = packet.velocity !== undefined ? packet.velocity.x : packet.velocityX;
+        const rawVY = packet.velocity !== undefined ? packet.velocity.y : packet.velocityY;
+        const rawVZ = packet.velocity !== undefined ? packet.velocity.z : packet.velocityZ;
+        const nvx = rawVX / 8000, nvy = rawVY / 8000, nvz = rawVZ / 8000;
+        if (DEBUG_DAMAGE) {
+            const p = bot.entity.position, v = bot.entity.velocity;
+            logger.info(`[damage-debug] entity_velocity: entityId=${packet.entityId} botEntityId=${bot.entity.id} isBot=${packet.entityId === bot.entity.id} vel=(${nvx.toFixed(4)},${nvy.toFixed(4)},${nvz.toFixed(4)}) pos=(${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}) curVel=(${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}) onGround=${bot.entity.onGround}`);
+        }
+        // ノックバックをbotWorkerハンドラからも直接適用（entities.jsの処理と順序に依存しないよう保険として）
+        if (packet.entityId === bot.entity.id && isFinite(nvx) && isFinite(nvy) && isFinite(nvz)) {
+            bot.entity.velocity.x = nvx;
+            bot.entity.velocity.y = nvy;
+            bot.entity.velocity.z = nvz;
+            if (DEBUG_DAMAGE) {
+                logger.info(`[damage-debug] knockback applied: vel=(${nvx.toFixed(4)},${nvy.toFixed(4)},${nvz.toFixed(4)})`);
+            }
+        }
+        // entity_velocity 後 300ms 間、送信パケットをログに記録（DEBUG_DAMAGE=true の時のみ有効）
+        if (DEBUG_DAMAGE) {
+            logSendPackets = true;
+            if (logSendTimer) clearTimeout(logSendTimer);
+            logSendTimer = setTimeout(() => { logSendPackets = false; }, 300);
+        }
+    });
+    // ======================================
+
     let movingTickCounter = 0;
     let stopMovingTickCounter = 0;
     let lastPosition = null;
@@ -154,7 +220,7 @@ bot.once('spawn', async () => {
         //console.log(`#########${bot.username} isMoving=${bot.pathfinder.isMoving()}`)
         if (bot.pathfinder.isMoving()) {
             if(movingTickCounter === 0){
-                lastPosition = bot.entity.position;
+                lastPosition = bot.entity.position.clone();
             }
             movingTickCounter++;
             stopMovingTickCounter = 0;
@@ -162,13 +228,13 @@ bot.once('spawn', async () => {
             if (movingTickCounter % Math.floor(20 * stuckCheckIntervalSec) === 0) {
                 const delta = lastPosition.distanceTo(bot.entity.position);
                 if(delta < 0.1){
-                    const pos = bot.entity.position
+                    const pos = bot.entity.position.clone();
                     const dx = (Math.random() - 0.5) * 2 * stuckOffsetRange // -stuckOffsetRange <= dx <= stuckOffsetRange
                     const dz = (Math.random() - 0.5) * 2 * stuckOffsetRange
                     bot.chat(`/tp @s ${pos.x+dx} ${pos.y} ${pos.z+dz}`);
                     logger.info(`${bot.username} is stuck. Trying to adjust position...`);
                 }
-                lastPosition = bot.entity.position;
+                lastPosition = bot.entity.position.clone();
                 logger.debug(`movingTickCounter=${movingTickCounter} delta=${delta}`);
             }
 
@@ -241,7 +307,7 @@ async function execute({code, primitives=[]}){
     const suffix = success ? "" : "_error"
     const fileToSave = path.join(logDir, `executed_code_${getFormattedDateTime()}_${mcName}${suffix}.txt`);
     fs.writeFile(fileToSave, code, 'utf8');
-    
+
     return {success, errorMsg};
 }
 

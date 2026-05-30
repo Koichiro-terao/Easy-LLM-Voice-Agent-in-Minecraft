@@ -1,5 +1,6 @@
 import re
 import time
+import json
 from datetime import datetime
 from pathlib import Path
 from javascript import require
@@ -86,6 +87,18 @@ def _process_ai_message(message, disallowed_expressions=[]):
             time.sleep(1)
 
     return {"failed_code": code}, f"Error parsing action response (before program execution): {error}"
+def _process_ai_message_json(message, disallowed_expressions=[]):
+    parsed = json.loads(message)
+    lines = parsed["code"]
+    code = ""
+    for line in lines:
+        code += f"await {line};\n"
+
+    result = {
+        "whole_code": code
+    }
+
+    return result, None
 
 class OpenAILLM:
     def __init__(self, 
@@ -130,11 +143,13 @@ class OpenAILLM:
                         temperature=temperature,
                         timeout=request_timeout,
                         # max_tokens=100
+                        response_format={"type": "json_object"},
                     )
             logger.info(f"finish llm chat create")
             if javascript_check:
                 logger.info(f"check javascript")
-                parsed_result, error = _process_ai_message(response.choices[0].message.content, disallowed_expressions=disallowed_expressions)
+                #parsed_result, error = _process_ai_message(response.choices[0].message.content, disallowed_expressions=disallowed_expressions)
+                parsed_result, error = _process_ai_message_json(response.choices[0].message.content, disallowed_expressions=disallowed_expressions)
             else:
                 parsed_result, error = {"whole_code":response.choices[0].message.content}, None
             

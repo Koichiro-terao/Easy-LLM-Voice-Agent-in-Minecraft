@@ -280,8 +280,13 @@ function inject (bot) {
 
   bot._client.on('entity_velocity', (packet) => {
     // entity velocity
+    // Minecraft 1.21+ changed the packet format: velocity is a nested object {x, y, z}
+    // Older versions use flat fields velocityX, velocityY, velocityZ
     const entity = fetchEntity(packet.entityId)
-    const notchVel = new Vec3(packet.velocityX, packet.velocityY, packet.velocityZ)
+    const vx = packet.velocity !== undefined ? packet.velocity.x : packet.velocityX
+    const vy = packet.velocity !== undefined ? packet.velocity.y : packet.velocityY
+    const vz = packet.velocity !== undefined ? packet.velocity.z : packet.velocityZ
+    const notchVel = new Vec3(vx, vy, vz)
     entity.velocity.update(conv.fromNotchVelocity(notchVel))
   })
 

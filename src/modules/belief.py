@@ -10,6 +10,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+from typing import Optional
+from collections import defaultdict
 
 from jinja2 import Environment, StrictUndefined
 
@@ -1108,42 +1110,56 @@ def latest_history_json(branch_str: str) -> str:
     return json.dumps(history, ensure_ascii=False, indent=2)
 
 
-def blocks_and_visibilities(branch_str: str, block_names: Optional[list[str]] = None, other_branch_str_list=None) -> str:
+def blocks_and_visibilities(
+    branch_str: str,
+    block_names: Optional[list[str]] = None,
+    blacklist: Optional[list[str]] = None,
+    other_branch_str_list=None,
+) -> str:
     del other_branch_str_list
+
     loader = get_loader()
     latest_state, _ = loader.get_latest_state(branch_str)
     all_blocks = latest_state["blocks"]["__Vec3Map__"]
 
     if isinstance(block_names, str):
         block_names = [block_names]
+
+    if isinstance(blacklist, str):
+        blacklist = [blacklist]
+
+    blacklist_set = set(blacklist or [])
+
+    positions_by_name = defaultdict(list)
+
+    for block in all_blocks:
+        name = block["name"]
+
+        # blacklist は block_names=None のときだけ使う
+        if block_names is None and name in blacklist_set:
+            continue
+
+        pos_str = str(tuple(block["position"]))
+        positions_by_name[name].append(pos_str)
+
     if block_names is None:
-        block_names = sorted({block["name"] for block in all_blocks})
+        target_names = sorted(positions_by_name.keys())
+    else:
+        target_names = block_names
 
     sections = []
-    for name in block_names:
-        info = {}
-        for block in all_blocks:
-            if block["name"] != name:
-                continue
 
-            pos_str = str(tuple(block["position"]))
-            world_info = {}
-            if "stateId" in block:
-                world_info["stateId"] = block["stateId"]
-            if "properties" in block and block["properties"]:
-                world_info["properties"] = deepcopy(block["properties"])
+    for name in target_names:
+        positions = positions_by_name.get(name)
 
-            info[pos_str] = world_info
-
-        if info:
-            sections.append(f"{name}:")
-            sections.append(json.dumps(info, ensure_ascii=False, indent=2))
+        if positions:
+            sections.append(
+                f"{name}: {json.dumps(positions, ensure_ascii=False)}"
+            )
         else:
-            sections.append(f"{name}:")
-            sections.append("Not observed")
+            sections.append(f"{name}: Not observed")
 
     return "\n".join(sections)
-
 
 def events_and_visibilities(branch_str: str, agent_name_i_have: Optional[str] = None) -> str:
     del agent_name_i_have

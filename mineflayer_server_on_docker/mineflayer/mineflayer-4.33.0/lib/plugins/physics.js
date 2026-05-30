@@ -16,7 +16,11 @@ let physics_timestamp = physics_interval_ms / 1000 // 0.05
 
 function inject (bot, { physicsEnabled, maxCatchupTicks }) {
   const PHYSICS_CATCHUP_TICKS = maxCatchupTicks ?? 4
-  const world = { getBlock: (pos) => { return bot.blockAt(pos, false) } }
+  // 物理シミュレーション関連のデバッグログを有効にする場合は true に変更する
+  const DEBUG_PHYSICS = false
+  const world = {
+    getBlock: (pos) => bot.blockAt(pos, false)
+  }
   const physics = Physics(bot.registry, world)
 
   const positionUpdateSentEveryTick = bot.supportFeature('positionUpdateSentEveryTick')
@@ -40,6 +44,9 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
   let shouldUsePhysics = false
   bot.physicsEnabled = physicsEnabled ?? true
   let deadTicks = 21
+  // 【NaN 回復用】最後に確認された有効な座標。synchronize_player_position と
+  // 正常な simulatePlayer 完了時に更新される。
+  let lastGoodPos = null
 
   const lastSent = {
     x: 0,
@@ -78,7 +85,34 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
   function tickPhysics (now) {
     if (bot.blockAt(bot.entity.position) == null) return // check if chunk is unloaded
     if (bot.physicsEnabled && shouldUsePhysics) {
+      const _px = bot.entity.position.x, _py = bot.entity.position.y, _pz = bot.entity.position.z
+      const _vx = bot.entity.velocity.x, _vy = bot.entity.velocity.y, _vz = bot.entity.velocity.z
+      // simulatePlayer 実行前に velocity が NaN でないか確認（ブロック摩擦が未定義の場合に NaN になることがある）
+      if (!isFinite(_vx) || !isFinite(_vy) || !isFinite(_vz)) {
+        if (DEBUG_PHYSICS) console.log(`[physics:NaN] pre-simulate velocity NaN! vel=(${_vx},${_vy},${_vz}) pos=(${_px.toFixed(2)},${_py.toFixed(2)},${_pz.toFixed(2)}) → velocity を 0 にリセット`)
+        bot.entity.velocity.set(0, 0, 0)
+      }
       physics.simulatePlayer(new PlayerState(bot, controlState), world).apply(bot)
+      const p = bot.entity.position
+      const v = bot.entity.velocity
+      if (!isFinite(p.x) || !isFinite(p.y) || !isFinite(p.z) ||
+          !isFinite(v.x) || !isFinite(v.y) || !isFinite(v.z)) {
+        if (DEBUG_PHYSICS) console.log(`[physics:NaN] simulatePlayer が不正な値を生成! prevPos=(${_px},${_py},${_pz}) prevVel=(${_vx},${_vy},${_vz}) newPos=(${p.x},${p.y},${p.z}) newVel=(${v.x},${v.y},${v.z}) lastGoodPos=${JSON.stringify(lastGoodPos)}`)
+        // lastGoodPos（サーバー確認済みの有効な座標）に戻す
+        if (lastGoodPos) {
+          bot.entity.position.set(lastGoodPos.x, lastGoodPos.y, lastGoodPos.z)
+        } else if (isFinite(_px) && isFinite(_py) && isFinite(_pz)) {
+          bot.entity.position.set(_px, _py, _pz)
+        }
+        bot.entity.velocity.set(0, 0, 0)
+        return // updatePosition を呼ばない（NaN をサーバーに送らない）
+      }
+      // 正常に完了した場合、lastGoodPos を更新
+      if (lastGoodPos) {
+        lastGoodPos.x = p.x; lastGoodPos.y = p.y; lastGoodPos.z = p.z
+      } else {
+        lastGoodPos = { x: p.x, y: p.y, z: p.z }
+      }
       bot.emit('physicsTick')
       bot.emit('physicTick') // Deprecated, only exists to support old plugins. May be removed in the future
     }
@@ -99,6 +133,14 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
 
   function sendPacketPosition (position, onGround) {
     // sends data, no logic
+    // 【安全ガード】NaN 座標はサーバーに送らない（invalid_player_movement kick を防止）
+    if (!isFinite(position.x) || !isFinite(position.y) || !isFinite(position.z)) {
+      const resetPos = lastGoodPos || (isFinite(lastSent.x) ? lastSent : null)
+      if (DEBUG_PHYSICS) console.log(`[physics:NaN-guard] sendPacketPosition blocked NaN: pos=(${position.x},${position.y},${position.z}) → resetting to ${JSON.stringify(resetPos)}`)
+      if (resetPos) bot.entity.position.set(resetPos.x, resetPos.y, resetPos.z)
+      bot.entity.velocity.set(0, 0, 0)
+      return
+    }
     const oldPos = new Vec3(lastSent.x, lastSent.y, lastSent.z)
     lastSent.x = position.x
     lastSent.y = position.y
@@ -122,6 +164,14 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
 
   function sendPacketPositionAndLook (position, yaw, pitch, onGround) {
     // sends data, no logic
+    // 【安全ガード】NaN 座標はサーバーに送らない（invalid_player_movement kick を防止）
+    if (!isFinite(position.x) || !isFinite(position.y) || !isFinite(position.z)) {
+      const resetPos = lastGoodPos || (isFinite(lastSent.x) ? lastSent : null)
+      if (DEBUG_PHYSICS) console.log(`[physics:NaN-guard] sendPacketPositionAndLook blocked NaN: pos=(${position.x},${position.y},${position.z}) → resetting to ${JSON.stringify(resetPos)}`)
+      if (resetPos) bot.entity.position.set(resetPos.x, resetPos.y, resetPos.z)
+      bot.entity.velocity.set(0, 0, 0)
+      return
+    }
     const oldPos = new Vec3(lastSent.x, lastSent.y, lastSent.z)
     lastSent.x = position.x
     lastSent.y = position.y
@@ -417,6 +467,12 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
     }
     sendPacketPositionAndLook(pos, newYaw, newPitch, bot.entity.onGround)
 
+    // サーバーから送られた有効な座標を lastGoodPos に記録
+    if (isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
+      if (lastGoodPos) { lastGoodPos.x = pos.x; lastGoodPos.y = pos.y; lastGoodPos.z = pos.z }
+      else { lastGoodPos = { x: pos.x, y: pos.y, z: pos.z } }
+    }
+    if (DEBUG_PHYSICS) console.log(`[physics:position] synchronize_player_position pos=(${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)}) vel=(${vel.x.toFixed(4)},${vel.y.toFixed(4)},${vel.z.toFixed(4)}) oldShouldUsePhysics=${shouldUsePhysics}`)
     shouldUsePhysics = true
     bot.jumpTicks = 0
     lastSentYaw = bot.entity.yaw
@@ -456,5 +512,21 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
       doPhysicsTimer = setInterval(doPhysics, physics_interval_ms)
     }
   })
+  // 【修正1】death 時に物理を停止（auto-respawn 中の不正座標を防止）
+  bot.on('death', () => { shouldUsePhysics = false })
+
+  // 【調査ログ】entity_velocity 受信時のログ（DEBUG_PHYSICS=true の時のみ出力）
+  if (DEBUG_PHYSICS) {
+    bot._client.on('entity_velocity', (packet) => {
+        if (packet.entityId !== bot.entity.id) return
+        const rawVX = packet.velocity !== undefined ? packet.velocity.x : packet.velocityX
+        const rawVY = packet.velocity !== undefined ? packet.velocity.y : packet.velocityY
+        const rawVZ = packet.velocity !== undefined ? packet.velocity.z : packet.velocityZ
+        const vx = (rawVX/8000).toFixed(4), vy = (rawVY/8000).toFixed(4), vz = (rawVZ/8000).toFixed(4)
+        // entities.js が実行済みのはずなので、ここで bot.entity.velocity を確認する
+        const bv = bot.entity.velocity
+        console.log(`[physics:entity_velocity] packetVel=(${vx},${vy},${vz}) botVelAfterEntities=(${bv.x},${bv.y},${bv.z}) shouldUsePhysics=${shouldUsePhysics}`)
+    })
+  }
   bot.on('end', cleanup)
 }
