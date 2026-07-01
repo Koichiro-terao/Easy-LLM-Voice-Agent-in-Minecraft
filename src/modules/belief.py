@@ -15,6 +15,7 @@ from collections import defaultdict
 
 from jinja2 import Environment, StrictUndefined
 
+EXCLUDE_NAMES: list[str] = ["Camera", "admin"]
 
 current_loader = ContextVar("current_loader")
 
@@ -702,15 +703,19 @@ class StandaloneWorldObservationRuntime:
             }
 
         if event_obs.event_type == "craft_item":
+            visible = {
+                "itemName": data["item"],
+                "producedCount": data.get("count", 1),
+                "consumedItems": {name: count for name, count in data.get("consumed", {}).items()},
+            }
+
+            if data.get("tablePos") is not None:
+                visible["craftingTablePos"] = self._abs_to_rel_vec3(data["tablePos"])
+
             return {
                 "eventName": "craftItem",
                 "agentName": agent_name,
-                "visible": {
-                    "itemName": data["item"],
-                    "producedCount": 1,
-                    "consumedItems": {name: count for name, count in data["consumed"].items()},
-                    "craftingTablePos": self._abs_to_rel_vec3(data["tablePos"]),
-                },
+                "visible": visible,
                 "hidden": {},
             }
 
@@ -933,6 +938,15 @@ def thought(branch_str: str) -> str:
     return "\n".join(lines) if lines else "No thought"
 
 
+def _decode_escaped_unicode_text(value: str) -> str:
+    if "\\u" not in value and "\\n" not in value and "\\t" not in value:
+        return value
+    try:
+        return json.loads(f'"{value}"')
+    except Exception:
+        return value
+
+
 def chat_log(branch_str: str) -> str:
     loader = get_loader()
     latest_state, _ = loader.get_latest_state(branch_str)
@@ -940,7 +954,8 @@ def chat_log(branch_str: str) -> str:
     for tick, event in _iter_events(latest_state):
         if event.get("eventName") != "chat":
             continue
-        lines.append(f't={tick}   {event["visible"]["agentName"]} said "{event["visible"]["msg"]}"')
+        msg = _decode_escaped_unicode_text(event["visible"]["msg"])
+        lines.append(f't={tick}   {event["visible"]["agentName"]} said "{msg}"')
     return "\n".join(lines) if lines else "No chats"
 
 
@@ -994,6 +1009,8 @@ def other_players(branch_str: str, agent_name: Optional[str] = None) -> str:
     info = {}
     for agent_name in latest_state["status"]:
         if agent_name == main_agent_name:
+            continue
+        if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため：後程修正
             continue
         info[agent_name] = {
             "position": position(branch_str, agent_name=agent_name),
@@ -1094,6 +1111,8 @@ def events(branch_str: str) -> str:
             agent_name = event["visible"]["agentName"]
         else:
             agent_name = event.get("agentName")
+        if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため：後程修正
+            continue
         lines.append(f"{tick};{event_name};{agent_name};{_event_to_description(event)}")
     return "\n".join(lines)
 
@@ -1184,6 +1203,9 @@ def events_and_visibilities(branch_str: str, agent_name_i_have: Optional[str] = 
                 agent_name = event["visible"]["agentName"]
             else:
                 agent_name = event.get("agentName", "unknown")
+
+            if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため：後程修正
+                continue
 
             try:
                 description = _event_to_description(event)
@@ -1338,3 +1360,64 @@ def build_world_config_from_first_blocks_data(blocks_data):
             "events": {},
         },
     }
+
+def build_world_config_from_block_snapshot_buffer(obs, block_snapshot_buffer):
+    block_snapshot_items = []
+    if obs.get("type") == "block_snapshot":
+        block_snapshot_items = [obs]
+    else:
+        block_snapshot_items = [
+            item for item in obs.get("items", [])
+            if item.get("type") == "block_snapshot"
+        ]
+
+    if not block_snapshot_items:
+        return None
+
+    for item in block_snapshot_items:
+        data = item["data"]
+        request_id = data.get("requestId", "default")
+        sequence = data.get("sequence", 0)
+        complete = item.get("complete", data.get("complete", False))
+        item_count = len(data.get("items", []))
+
+        if request_id not in block_snapshot_buffer:
+            block_snapshot_buffer[request_id] = {}
+
+        block_snapshot_buffer[request_id][sequence] = item
+
+        if complete:
+            snapshots = [
+                block_snapshot_buffer[request_id][seq]
+                for seq in sorted(block_snapshot_buffer[request_id])
+            ]
+
+            merged_obs = {
+                "type": "event_batch",
+                "items": snapshots,
+            }
+
+            world_config = build_world_config_from_first_blocks_data(merged_obs)
+
+            bounds = data["bounds"]
+            expected_count = (
+                (bounds["max"]["x"] - bounds["min"]["x"] + 1)
+                * (bounds["max"]["y"] - bounds["min"]["y"] + 1)
+                * (bounds["max"]["z"] - bounds["min"]["z"] + 1)
+            )
+            actual_count = len(world_config["state"]["blocks"]["__Vec3Map__"])
+            chest_count = len(world_config["state"]["containers"]["__Vec3Map__"])
+
+            snapshot_info = {
+                "request_id": request_id,
+                "sequences": sorted(block_snapshot_buffer[request_id]),
+                "actual_count": actual_count,
+                "expected_count": expected_count,
+                "chest_count": chest_count,
+            }
+
+            del block_snapshot_buffer[request_id]
+
+            return world_config, snapshot_info
+
+    return None

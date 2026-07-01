@@ -13,6 +13,7 @@ class WebsocketConnector:
         self.ws_name = ws_name
         self.host = host
         self.port = port
+        self.max_size=10*1024*1024 # 10MB
         self.bool_output_data_for_q = output_data_for_q
         self.websocket = None
         self.queue = queue.Queue()
@@ -37,7 +38,7 @@ class WebsocketConnector:
         print(f"[{self.ws_name}] sent data")
 
     def run(self):
-        with serve(self.handler, self.host, self.port) as server:
+        with serve(self.handler, self.host, self.port, max_size=self.max_size) as server:
             print(f"listening on ws://{self.host}:{self.port}")
             server.serve_forever()
 

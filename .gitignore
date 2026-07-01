@@ -10,7 +10,8 @@ minecraft_server_on_docker/_mods/1.21/easy-llm-fabric-1.0.0+mc1.21.jar
 minecraft_server_on_docker/_mods/1.21/fabric-api-0.102.0+1.21.jar
 minecraft_server_on_docker/_mods/1.21/voicechat-fabric-1.21.1-2.6.17.jar
 minecraft_server_on_docker/_mods/1.21/easy-llm-voice-fabric-1.0.0+mc1.21.jar
-minecraft_server_on_docker/flat/25565/
+minecraft_server_on_docker/flat/*/
+minecraft_server_on_docker/normal/*/
 
 mineflayer_server_on_docker/__pycache__/
 mineflayer_server_on_docker/mineflayer_logs/
@@ -19,6 +20,15 @@ src/logs/
 src/modules/__pycache__/
 src/.vscode/
 src/realtimesst.log
+src/prompts/coding_llm_human_prompt_template_jp_extraversion.txt
+src/prompts/decision_making_human_prompt.txt
+src/prompts/decision_making_system_prompt.txt
+src/modules/under_development/
+src/under_development/
+
+control_panel/
+primitive_creator/
+config_editor/
 
 tmps/
 

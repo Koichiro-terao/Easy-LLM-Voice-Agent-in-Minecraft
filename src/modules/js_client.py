@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -8,7 +9,7 @@ from uuid import uuid4
 import numpy as np
 import websocket
 
-ADMIN_MC_NAME = "admin"
+ADMIN_MC_NAME = os.environ.get("MINEFLAYER_ADMIN_MC_NAME", "admin")
 
 
 def json_default(o):
@@ -20,7 +21,8 @@ def json_default(o):
     raise TypeError(f"Object is not JSON serializable: type={type(o).__name__}, value={o!r}")
 
 class MineflayerJsClient:
-    def __init__(self, port, logger=None, ws_factory=None):
+    def __init__(self, host="localhost", port=3000, logger=None, ws_factory=None):
+        self.host = host
         self.port = port
         self.logger = logger
         self.ws_factory = ws_factory or websocket.WebSocket
@@ -42,7 +44,7 @@ class MineflayerJsClient:
         if self.ws is not None:
             return
         self.ws = self.ws_factory()
-        self.ws.connect(f"ws://localhost:{self.port}")
+        self.ws.connect(f"ws://{self.host}:{self.port}")
         self.running = True
         self.receiver_thread = threading.Thread(target=self._receiver_loop, daemon=True)
         self.receiver_thread.start()
@@ -191,6 +193,13 @@ class MineflayerJsClient:
         }
         return self.send_command("execJs", params, sync=sync, timeout=timeout)
 
+    def get_all_mc_names(self, *, server_id, mc_name, sync=True, timeout=180):
+        params = {
+            "serverId": server_id,
+            "mcName": mc_name,
+        }
+        return self.send_command("getAllMcNames", params, sync=sync, timeout=timeout)
+    
     def _receiver_loop(self):
         while self.running:
             try:

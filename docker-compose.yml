@@ -1,0 +1,69 @@
+services:
+  minecraft:
+    image: itzg/minecraft-server
+    container_name: mc_server_flat_25565
+    tty: true
+    stdin_open: true
+    ports:
+      - "25565:25565"
+      - "24454:24454/udp"
+    environment:
+      MC_SERVER_ID: "minecraft:25565"
+      EULA: "TRUE"
+      TYPE: "FABRIC"
+      VERSION: "1.21"
+      CREATE_CONSOLE_IN_PIPE: "true"
+      MODRINTH_PROJECTS: |
+        fabric-api
+        easy-llm
+      OPS: "36881d51-7477-3eb6-91a1-dfc11065590d"
+      ONLINE_MODE: "FALSE"
+      DIFFICULTY: "peaceful"
+      MAX_PLAYERS: "100"
+      LEVEL: "world"
+      LEVEL_TYPE: "flat"
+      GENERATOR_SETTINGS: '{"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:dirt","height":2},{"block":"minecraft:grass_block","height":1}],"biome":"minecraft:plains"}'
+      GENERATE_STRUCTURES: "false"
+    volumes:
+      - "./minecraft_server_on_docker/flat/25565/data:/data"
+    networks:
+      - bnnet
+
+  mineflayer:
+    build:
+      context: ./mineflayer_server_on_docker/mineflayer
+    container_name: beliefnestjs
+    environment:
+      BN_DOCKER_LOCALHOST_ALIAS: "minecraft"
+      NODE_PATH: "/app/node_modules"
+    ports:
+      - "3000:3000"
+    command: ["node", "server.js", "3000"]
+    volumes:
+      - "./mineflayer_server_on_docker/mineflayer_logs:/mf_logs"
+    networks:
+      - bnnet
+
+  agent:
+    build:
+      context: .
+      dockerfile: ./src/Dockerfile
+    container_name: easyllmvoice_agent
+    depends_on:
+      - minecraft
+      - mineflayer
+    stdin_open: true
+    tty: true
+    restart: on-failure
+    working_dir: /app/src
+    ports:
+      - "7891:7891"
+    command: ["python", "-u", "main.py", "--config", "sally_cfg.yml"]
+    volumes:
+      - "./src:/app/src"
+    networks:
+      - bnnet
+
+networks:
+  bnnet:
+    external: true

@@ -13,32 +13,8 @@
 ・doNothing()
 何もしない
 
-・backFlipEmoteExtention()
-backFlipのエモートをする
-
-・facePalmEmoteExtention(bot)
-facePalmのエモートをする
-
-・cossackDanceEmoteExtention(bot)
-cossackDanceのエモートをする
-
-・jumpAndWaveForwardEmoteExtention(bot)
-前方にジャンプしながら手を振るエモートをする
-
-・robloxPotionDanceEmoteExtention(bot)
-robloxPotionDanceのエモートをする
-
-・cryEmoteExtention(bot)
-泣くエモートをする
-
-・pointFingerForwardEmoteExtention(bot)
-前方を指差すエモートをする
-
-・waveForwardEmoteExtention(bot)
-前方に手を振るエモートをする
-
 ・craftItem(bot, name, craftingTablePos, count = 1)
-アイテムをクラフトする
+作業台を使用してアイテムをクラフトする
 用例: craftItem(bot, "oak_planks", new Vec3(0, 40, 0), 2)
 
 ・giveItemToOther(bot, othername, item, num)
@@ -53,8 +29,7 @@ othernameにbot自身の名前を指定してはいけない
 
 ・goToPosition(bot, position, dist)
 指定した座標の近くまで移動する
-craftingTableなどのブロックを使用する際に活用できる
-用例: goToPosition(bot, new Vec3(1, -32, -92), 1)
+用例: goToPosition(bot, new Vec3(1, -32, -92), 2)
 
 ・mineBlock(bot, blockPosition, blockName)
 指定した座標にある指定名のブロックを採掘する

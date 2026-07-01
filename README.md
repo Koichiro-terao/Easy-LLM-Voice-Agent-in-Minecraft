@@ -6,9 +6,12 @@
 # Easy LLM Voice
 
 Easy LLM Voice is a platform for developing AI agents that can play together with you in Minecraft.
-<br>It extends [Easy LLM Agent in Minecraft](https://github.com/Koichiro-terao/Easy-LLM-Agent-in-Minecraft), enabling AI agents built with Easy LLM Voice to access in-game information, use an LLM to decide on actions, generate utterances, and interact through voice dialogue.
+<br>It extends [Easy LLM Agent in Minecraft](https://github.com/Koichiro-terao/Easy-LLM-Agent-in-Minecraft), enabling AI agents built with Easy LLM Voice to access in-game information, use an LLM to generate actions and utterances, and interact through voice dialogue.
 
 ## Latest Updates
+
+### 2026-07-02
+- Created a Docker Image for running the AI agent
 
 ### 2026-05-31
 - Fixed the physics processing of AI agents and resolved an issue where agents were kicked from the server when taking damage.
@@ -37,6 +40,8 @@ Implement an AI agent that can talk and play together with you in a Minecraft wo
   : Source code for building a Mineflayer server on Docker
 - [src](./src/)
   : Python sample code for implementing an AI agent
+- [bat](./bat/)
+  : Bat files for running each Docker container
 
 ---
 
@@ -46,7 +51,7 @@ This repository is an extension of [Easy LLM Agent in Minecraft](https://github.
 
 ---
 
-# AI Agent Implementation Workflow
+# How to Launch This Repository
 
 This section describes how to implement an AI agent in Minecraft using Minecraft mods and Python programs.
 
@@ -54,42 +59,18 @@ This section describes how to implement an AI agent in Minecraft using Minecraft
 
 Follow the steps below to prepare your environment. Operation has been verified on Windows 11.
 
-### 1.1 Installing Python Libraries
-
-Create a Python 3.11 or later environment and install the required libraries.
-
-The following example shows how to set up a Python environment with [Anaconda](https://www.anaconda.com/download).
-If you use Anaconda, run the following commands in PowerShell from the root folder of this repository to create the Python environment.
-
-```powershell
-conda create -n easy_llm python=3.11
-conda activate easy_llm
-cd src
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-This sample program also uses real-time speech recognition with GPU processing through RealtimeSTT. Install the modules appropriate for your PC by following the instructions at the URL below.
-[https://github.com/KoljaB/RealtimeSTT](https://github.com/KoljaB/RealtimeSTT)
-
-Example: If you are using an NVIDIA GPU that supports CUDA 12.x
-
-```powershell
-pip install torch==2.5.1+cu121 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
-```
-
-### 1.2 Installing Docker
+### 1.1 Installing Docker
 
 If you are using Windows, download and run the installer from [Docker Docs](https://docs.docker.com/desktop/setup/install/windows-install/). Docker version 20.10 or later is required.
 
-### 1.3 Installing Minecraft
+### 1.2 Installing Minecraft
 
 Install [Minecraft Launcher](https://www.minecraft.net/) and make sure you can play Minecraft: Java Edition version 1.21. This will be used as the client. A Java Edition license is required.
 <br>The mods used by Easy LLM Voice are intended to run in a Fabric environment. Install [Fabric Loader](https://fabricmc.net/) and create an environment for Minecraft version 1.21. Then select `Fabric` in the Minecraft Launcher and start the game.
 <br>Alternatively, you can set up the environment using [Prism Launcher](https://prismlauncher.org) or a similar launcher. If you use Prism Launcher, refer to the URL below when setting up the environment.
 <br>Fabric with Prism Launcher: [https://wiki.fabricmc.net/player:tutorials:third-party:prism](https://wiki.fabricmc.net/player:tutorials:third-party:prism)
 
-The folder for mod files is created on the first launch, so start the client once and then close it.
+The folder for mod files is not created until the first launch, so start the client once and then close it.
 
 The following websites may be useful when setting up a Fabric environment.
 
@@ -97,13 +78,13 @@ The following websites may be useful when setting up a Fabric environment.
 - Installing Fabric: [https://docs.fabricmc.net/players/installing-fabric/](https://docs.fabricmc.net/players/installing-fabric/)
 - Fabric with Prism Launcher: [https://wiki.fabricmc.net/player:tutorials:third-party:prism](https://wiki.fabricmc.net/player:tutorials:third-party:prism)
 
-### 1.4 Obtaining an OpenAI API Key
+### 1.3 Obtaining an OpenAI API Key
 
 - Create an OpenAI API key [here](https://platform.openai.com/api-keys). You will need to create an account. Also check [here](https://platform.openai.com/settings/organization/billing/overview) that your balance is at least $0.10.
 
 The API key is used because the AI agent uses an LLM to generate actions.
 
-### 1.5 Downloading Mod Files
+### 1.4 Downloading Mod Files
 
 Download the following mod files.
 
@@ -118,67 +99,44 @@ Select the Fabric API version as shown below, then download it.
   <img src="./image/fabric_api_download.png" alt="Voice Bridge GUI sample" width="450">
 </p>
 
-### 1.6 Installing the VOICEVOX Server
-
-This sample program uses speech synthesis with VOICEVOX.
-
-Download [VOICEVOX ENGINE](https://github.com/VOICEVOX/voicevox_engine/releases). Downloading the GPU version makes it easier to maintain real-time performance.
-
-Download the appropriate VOICEVOX ENGINE from the URL above.
-
-Example: Download the two ZIP files for the Windows GPU/CUDA version of the engine, Part 1 and Part 2, then extract them together using 7-Zip or a similar tool.
-
-VOICEVOX ENGINE is also distributed as a Docker image. However, because communication latency was observed in the development environment, we recommend running it locally.
-
 ## 2. Placing Mod Files
 
 ### 2.1 Installing Mods on the Minecraft Server
 
 Place the four downloaded files in the `data/mods` folder of the Minecraft server you will use.
 
-If you use the Minecraft server included in this project, place the files in [./minecraft_server_on_docker/_mods/1.21](./minecraft_server_on_docker/_mods/1.21). The mods will be loaded when the Minecraft server starts.
-After placing the mod files, delete [./minecraft_server_on_docker/_mods/1.21/mods_file_here.txt](./minecraft_server_on_docker/_mods/1.21/mods_file_here.txt).
+If you use the Minecraft server included in this project, no action is required.
 
 ### 2.2 Installing Mods on the Minecraft Client
 
 Place the following files in the `mods` folder of the Minecraft client you will use.
+`easy-llm-fabric-1.0.0+mc1.21.jar` runs only on the server side and is not required for the Minecraft client.
 
 - Fabric API: [`fabric-api-0.102.0+1.21.jar`](https://modrinth.com/mod/fabric-api)
 - Simple Voice Chat: [`voicechat-fabric-1.21.1-2.6.17.jar`](https://modrinth.com/plugin/simple-voice-chat)
 - Easy LLM Voice mod: [easy-llm-voice-fabric-1.0.0+mc1.21.jar][easyllmvoice]
 
-## 3. Starting Each Server
+Reference for mod installation: [Fabric Documentation/installing-mods](https://docs.fabricmc.net/players/installing-mods)
 
-Start each server in a separate terminal. Open three terminals.
-Each terminal should be opened in the root folder of this repository.
+## 3. Agent Launch Procedure
 
-- Minecraft server (Terminal A)
-- Mineflayer server (Terminal B)
-- VOICEVOX server (Terminal C)
+This repository runs using the following four Docker containers.
+Launch Docker Desktop from the Start menu or a similar location.
 
-### 3.1 Starting and Preparing the Minecraft Server
+- Minecraft server container
+- Mineflayer server container
+- VOICEVOX server container
+- Easy LLM Agent container
 
-- Start Docker Desktop
-  Start Docker Desktop from the Start menu or a similar location.
+### 3.1 Starting the Minecraft Server Container
 
 - Start the server
 
-  In Terminal A, run the following commands. The first launch may take some time.
-  ```
-  conda activate easy_llm
-  cd minecraft_server_on_docker
-  python launch_mc_server_cli.py
-  ```
+  Run [bat/start_Minecraft_server.bat](./bat/start_Minecraft_server.bat).
+  The first launch may take some time.
+  A Minecraft terminal will open.
 
-  After running the commands, enter the world settings in the terminal as shown below to start the Minecraft server.<br>You can start multiple Minecraft servers by changing the port number.
-
-  ```
-  Enter mode name [flat] > flat
-  Enter Minecraft port [25565] > 25565
-  Enter Minecraft version [1.21] > 1.21
-  ```
-
- The server has finished starting up when `Done` is displayed in the terminal as shown below.
+  The server has finished starting up when `Done` is displayed in the terminal as shown below.
 
   ```
   [00:39:28] [Server thread/INFO]: Done (0.465s)! For help, type "help"
@@ -190,7 +148,7 @@ Each terminal should be opened in the root folder of this repository.
 
 - Grant permissions
 
- After joining the world, run the following command in Terminal A, where the logs are being displayed.
+  After joining the world, run the following command in the Minecraft server terminal that was launched.
   ```
   op xxx
   ```
@@ -198,27 +156,18 @@ Each terminal should be opened in the root folder of this repository.
 
 - Check Simple Voice Chat mod
 
-  To check whether the Simple Voice Chat mod is available and working correctly, refer to the following file:
+  To check whether the Simple Voice Chat mod is available and working correctly, refer to the following file.
 
   [How to check Simple Voice Chat](./docs/simplevoicechat.en.md)
 
 **Note**
-<br>If you previously opened a server on Docker using the same port number, make sure the Docker container has stopped before following [3.1 Starting and Preparing the Minecraft Server](#31-starting-and-preparing-the-minecraft-server).
+<br>If you previously opened a server on Docker using the same port number, make sure the Docker container has stopped before following [3.1 Starting the Minecraft Server Container](#31-starting-the-minecraft-server-container).
 
-### 3.2 Starting the Mineflayer Server
 
-In Terminal B, run the following commands to start the server. The first launch may take some time.
-```
-conda activate easy_llm
-cd mineflayer_server_on_docker
-python mineflayer_cli.py
-```
+### 3.2 Starting the Mineflayer Server Container
 
-After running the commands, enter the world settings in the terminal as shown below to start the Mineflayer server.
-
-```
-Enter Minecraft version [1.21] > 1.21
-```
+  Run [bat/start_Mineflayer_server.bat](./bat/start_Mineflayer_server.bat). The first launch may take some time.
+  A Mineflayer terminal will open.
 
 The server has finished starting up when output like the following appears in the terminal.
 
@@ -227,61 +176,40 @@ Starting container: beliefnestjs
 Server started on port 3000
 ```
 
-### 3.3 Starting the VOICEVOX Server
+### 3.3 Starting the VOICEVOX Server Container
 
-In Terminal C, run the following commands from the root folder to start the server.
-Here, `xxx` is the folder path of the VOICEVOX ENGINE you downloaded.
+Run [bat/start_VOICEVOX.bat](./bat/start_VOICEVOX.bat).
+A VOICEVOX terminal will open.
 
-```
-cd xxx
-run.exe --use_gpu
-```
-
-When output like the following appears in the terminal, the server has finished starting.
+The server has finished starting up when output like the following appears in the terminal.
 
 ```
 done!
-INFO:     Started server process [7008]
+INFO:     Started server process [1]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://localhost:50021 (Press CTRL+C to quit)
+INFO:     Uvicorn running on http://0.0.0.0:50021 (Press CTRL+C to quit)
 ```
 
-## 4. WebSocket Connection Settings
+### 3.4 Configuring the Config
 
-### 4.1 Setup in Minecraft
+Enter the OpenAI API key you obtained in the `openai.api_key` or `openairealtime.api_key` field of `src/sally_cfg.yml`.
+You can also use the included config_editor to edit the configuration file.
 
-- Connection settings for the Easy LLM mod
+If you want to have conversations in Japanese, make the following changes.
 
-  Set the destination address to send observation information from Minecraft to WebSocket.
-  Run the following command in the text terminal in Minecraft.
-  <br>Operator permissions are required to run commands in the Minecraft text terminal. For how to set operator permissions, see [here](#31-starting-and-preparing-the-minecraft-server).
+- Change `generate_action: ./prompts/coding_llm_human_prompt_template.txt` to `generate_action: ./prompts/coding_llm_human_prompt_template_jp.txt`
+- Change `primitive: ./prompts/coding_llm_system_prompt_template.txt` to `primitive: ./prompts/coding_llm_system_prompt_template_jp.txt`
 
-  ```
-  /obsWs add ws://host.docker.internal:7892
-  ```
+### 3.5 Minecraft Settings
 
-  To check the destination addresses currently configured in Minecraft, run the following command.
-  By default, `ws://host.docker.internal:7891` is opened when the Minecraft server starts.
-
-  ```
-  /obsWs list
-  ```
-
-  To remove a destination address currently configured in Minecraft, run the following command.
-
-  ```
-  /obsWs remove ws://host.docker.internal:7892
-  ```
-
-- Connection settings for the Easy LLM Voice mod
+Easy LLM Voice mod connection settings
 
   Set the WebSocket destination address that allows the AI agent to join voice dialogue conducted through the Simple Voice Chat mod in Minecraft.
   <br>Configure this from the Easy LLM Voice mod GUI in Minecraft.
 
-  How to open the Easy LLM Voice mod GUI: Press `B` key
+  How to open the Easy LLM Voice mod GUI: Press the `B` key
 
-  The following is an example of the input required when setting the destination address for [5. Running the Sample Code](#5-running-the-sample-code).
   Enter the following values in the GUI text boxes and press `Add`.
 
   ```
@@ -290,148 +218,46 @@ INFO:     Uvicorn running on http://localhost:50021 (Press CTRL+C to quit)
   Port: 8765
   ```
 
-  After pressing `Add`, setup is complete if `sally @ host.docker.internal:8765 [ON]` is added to `Destination List`, as shown in the figure below.
+  After pressing `Add`, setup is complete if `sally @ host.docker.internal:8765 [ON]` is added to the `Destination List`, as shown in the figure below.
 
   <img src="./image/mod_gui_en.png" alt="Voice Bridge GUI sample" width="900">
 
-### 4.2 Setup in Python
+### 3.6 Starting the Easy LLM Agent Container
 
-Enter the OpenAI API key you obtained in `src/sally_cfg.yml`.
+Run [bat/start_sally.bat](./bat/start_sally.bat).
+The first launch may take 10 to 15 minutes due to Docker Image creation.
 
-Then check the following items in the `src/sally_cfg.yml` file.
+An Agent-sally terminal will open.
 
-- Check that the two values `host` and `port` under `easy_llm` on line 12 of `src/sally_cfg.yml` match the destination address configured in the connection settings for the Easy LLM mod above. If you are running the Minecraft server on Docker, set `ws://host.docker.internal:****` in Minecraft, and set `host: 0.0.0.0` on line 12 and `port: ****` on line 13 in `src/sally_cfg.yml`. `****` is any four-digit number.
-
-- Set the `agent_name` value under `agent` on line 1 of `src/sally_cfg.yml` to the same name as `Player name` in the Easy LLM Voice mod GUI.
-- Check that the two values `host` and `port` under `easy_llm_voice` on line 41 of `src/sally_cfg.yml` match `Host` and `Port` in the Easy LLM Voice mod GUI. If you are running the Minecraft server on Docker, set `host.docker.internal:****` in Minecraft, and set `host: 0.0.0.0` on line 42 and `port: ****` on line 43 in `src/sally_cfg.yml`. `****` is any four-digit number.
-
-- Check that a valid API key is set on line 35, `api_key`.
-
-If you want to have conversations in Japanese, make the following changes.
-
-- Change line 8, `generate_action: ./prompts/coding_llm_human_prompt_template.txt`, to `generate_action: ./prompts/coding_llm_human_prompt_template_jp.txt`.
-- Change line 9, `primitive: ./prompts/jp/coding_llm_system_prompt_template.txt`, to `primitive: ./prompts/jp/coding_llm_system_prompt_template_jp.txt`.
-
-## 5. Running the Sample Code
-
-Open one terminal to run the sample code. This must be a different terminal from the ones used to start each server.
-
-- Main program (Terminal D)
-
-In Terminal D, run the following commands from the root folder of this repository to start the program.
-  ```
-  conda activate easy_llm
-  cd src
-  python main.py --config sally_cfg.yml
-  ```
-
-Startup is complete when `Action generation will start when you press Enter.` appears in Terminal D.
-
-After `sally` joins the Minecraft world, run the following command in Terminal A, which is used for the Minecraft server.
+Once `sally` has joined the Minecraft world, run the following command in the Minecraft server terminal.
 <br>The AI agent needs operator permissions in order to use chests and other objects.
 
 ```
 op sally
 ```
 
-After that, at any time, press the Enter key once in Terminal D to make the agent generate actions and utterances.
+After that, at any time, press the Enter key once in the Agent-sally terminal to make the agent generate actions and utterances.
 
-## 6. Adding a Second or Later AI Agent
+## Recommended Environment
 
-You can create additional AI agents by creating a new `agent_cfg.yml` and running the main program.
-<br>`anne_cfg.yml` is provided as a sample.
+| Item | Minimum | Recommended |
+|---|---|---|
+| CPU | 8 cores | 12 cores or more |
+| RAM | 16 GB | 32 GB |
+| GPU VRAM | 6 GB | 8 GB or more |
+| Storage (free space) | 50 GB (SSD) | — |
+| OS | Windows 11 | — |
+| Docker Desktop | 4.20 or later | — |
+| NVIDIA Driver | 525.60.13 or later (CUDA 12.1 supported) | — |
+| NVIDIA Container Toolkit | 1.13.0 or later | — |
 
-**Note**
-<br>Each AI agent requires GPU VRAM to run speech recognition and speech synthesis. In the [development environment](#development-environment), approximately 4.7 GB of VRAM is used per AI agent.
-<br>Make sure you have enough VRAM before adding a second or later AI agent.
+## Development Environment
 
-### 6.1 Creating agent_cfg.yml
+Windows 11
+<br>Intel(R) Core(TM) i7-13620H (2.40 GHz)
+<br>NVIDIA GeForce RTX 4060
 
-1. Create a copy of `sally_cfg.yml`.
-  <br>Create a copy of `sally_cfg.yml` and give it any name. In this example, it is named `agent_cfg.yml`.
-2. Change the following items in `agent_cfg.yml`.
-  <br>Open `agent_cfg.yml` in a text editor or a similar tool and change the following items.
-
-- L2 `agent_name`: Any name
-- L4 `speaker_id`: Any numeric value
-- L14 `port`: Any four-digit number
-- L35 `api_key`: A valid API key
-- L43 `port`: Any four-digit number
-- L52 `port`: Any six-digit number
-
-**Note**
-
-- `agent_name` must be a name that does not already exist as an in-game player. Due to Minecraft specifications, players with the same name cannot exist at the same time.
-- `speaker_id` selects the voice used by VOICEVOX ENGINE. Set the numeric value corresponding to the voice you want to use with VOICEVOX ENGINE. To distinguish the agent from other AI agents, we recommend setting a different number.
-- Set the port numbers under L12 `easy_llm`, L41 `easy_llm_voice`, and L50 `tts` to numbers different from those used by other AI agents.
-
-If you use `anne_cfg.yml`, change the following item.
-
-- L35 `api_key`: A valid API key
-
-### 6.2 Starting the VOICEVOX Server
-
-Open one new terminal. This must be different from the terminals used so far.
-Run the following commands from the root folder to start the server.
-<br>Here, `xxx` is the folder path of the VOICEVOX ENGINE you downloaded, and `******` is the value of L52 `port: "any six-digit number"` that you set in [6.1 Creating agent_cfg.yml](#61-creating-agent_cfgyml).
-
-```
-cd xxx
-run.exe --use_gpu --port ******
-```
-
-When output like the following appears in the terminal, the server has finished starting.
-
-```
-done!
-INFO:     Started server process [7008]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://localhost:****** (Press CTRL+C to quit)
-```
-
-### 6.3 Setup in Minecraft
-
-Run the following command in the text terminal in Minecraft.
-<br>Replace `****` with the value of L14 `port: "any four-digit number"` that you set in [6.1 Creating agent_cfg.yml](#61-creating-agent_cfgyml).
-<br>If you use `anne_cfg.yml`, enter `7892`.
-
-```
-/obsWs add ws://host.docker.internal:****
-```
-
-### 6.4 Adding the Agent
-
-Open one new terminal. This must be different from the terminals used so far.
-
-- Main program (Terminal E)
-
-In Terminal E, run the following commands from the root folder of this repository to start the program.
-  ```
-  conda activate easy_llm
-  cd src
-  python main.py --config agent_cfg.yml
-  ```
-
-If you use `anne_cfg.yml`, run the following commands in Terminal E from the root folder of this repository.
-  ```
-  conda activate easy_llm
-  cd src
-  python main.py --config anne_cfg.yml
-  ```
-
-Startup is complete when `Action generation will start when you press Enter.` appears in Terminal E.
-
-After the AI agent joins the Minecraft world, run the following command in Terminal A, which is used for the Minecraft server.
-<br>The AI agent needs operator permissions in order to use chests and other objects.
-
-```
-op xxx
-```
-
-Here, `xxx` is the value of L2 `agent_name: "any name"` that you set in [6.1 Creating agent_cfg.yml](#61-creating-agent_cfgyml).
-
-After that, at any time, press the Enter key once in Terminal E to make the agent generate actions.
+When one AI agent is running, with one RealtimeSTT instance and one VOICEVOX ENGINE instance, approximately 4.7 GB of VRAM is used.
 
 ## Credits
 
@@ -444,14 +270,6 @@ After that, at any time, press the Enter key once in Terminal E to make the agen
 
 Simple Voice Chat itself is not distributed as part of this project.
 
-## Development Environment
-
-Windows 11
-<br>Intel(R) Core(TM) i7-13620H (2.40 GHz)
-<br>NVIDIA GeForce RTX 4060
-
-When one AI agent is running, with one RealtimeSTT instance and one VOICEVOX ENGINE instance, approximately 4.7 GB of VRAM is used.
-
 ## License
 
 This project is provided under the MIT License. For details, see [LICENSE](./LICENSE).
@@ -460,4 +278,5 @@ Part of the code is based on modified code from [MineDojo/Voyager](https://githu
 
 [easyllm]: https://www.curseforge.com/minecraft/mc-mods/easy-llm/files/all?page=1&pageSize=20&showAlphaFiles=hide
 [easyllmvoice]: https://www.curseforge.com/minecraft/mc-mods/easy-llm-voice/files/all?page=1&pageSize=20&showAlphaFiles=hide
+
 <!-- markdownlint-enable MD033 -->

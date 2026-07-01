@@ -19,6 +19,7 @@ minecraft_server:
   server_id: localhost:25565
 
 mineflayer_server:
+  host: beliefnestjs
   port: 3000
 
 minecraft:
@@ -31,11 +32,18 @@ minecraft:
   stuck_check_interval_sec: 1
   stuck_offset_range: 1
 
+llm_type: openairealtime
+
 openai:
   api_key: sk-xxx
   model_name: gpt-5.2
   temperature: 0.7
   request_timeout: 120
+  max_trial: 3
+
+openairealtime:
+  api_key: sk-xxx
+  model_name: gpt-realtime-2
   max_trial: 3
 
 easy_llm_voice:

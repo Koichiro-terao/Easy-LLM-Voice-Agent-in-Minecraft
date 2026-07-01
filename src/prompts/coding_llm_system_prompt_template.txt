@@ -54,7 +54,7 @@ Example: goToPosition(bot, new Vec3(1, -32, -92))
 ・goToPosition(bot, position, dist)
 Move close to the specified coordinates
 This can be used when using blocks such as a craftingTable
-Example: goToPosition(bot, new Vec3(1, -32, -92), 1)
+Example: goToPosition(bot, new Vec3(1, -32, -92), 2)
 
 ・mineBlock(bot, blockPosition, blockName)
 Mine the block with the specified name at the specified coordinates
@@ -142,7 +142,7 @@ Write the output in the following JSON format.
 # Output example 1
 {
 	"code":	[
-		"bot.chat('こんにちは！')"
+		"bot.chat('Hello！')"
 	]
 }
 
@@ -151,7 +151,6 @@ Write the output in the following JSON format.
 {
 	"code":	[
 		"goToPosition(bot, new Vec3(1, -42, 4))",
-		"bot.chat('到着したよ！')"
+		"bot.chat('I just got here！')"
 	]
 }
-

@@ -5,7 +5,6 @@ import time
 import queue
 import threading
 import numpy as np
-import av
 import audioop
 import base64
 import sys
@@ -14,10 +13,12 @@ from dataclasses import dataclass
 
 from modules.js_client import MineflayerJsClient
 from modules.websocketconnector import WebsocketConnector
-from modules.belief import StandaloneWorldObservationRuntime, build_world_config_from_first_blocks_data, get_event_result
-from modules.llm import OpenAILLM
+from modules.belief import StandaloneWorldObservationRuntime, build_world_config_from_block_snapshot_buffer, get_event_result
+from modules.llm import OpenAILLM, OllamaLLM, OpenAIRealtimeLLM
+from modules.mc_operator import ensure_operator_bot_connected, grant_operator_via_mineflayer
 from modules.tts import VOICEVOX_TTS
 from modules.asr import RealtimeSTT
+from modules.audio_packet_utils import encode_opus_packets, decode_opus_packets, split_packets_by_speaker, mix_timed_chunks
 from modules.utils import make_file_logger, load_config, load_primitives, read_files
 
 __VERSION__ = "20260427_0658"
@@ -38,6 +39,7 @@ class MinecraftServerConfig:
 
 @dataclass(frozen=True)
 class MineflayerServerConfig:
+    host: str
     port: int
 
 @dataclass(frozen=True)
@@ -64,11 +66,19 @@ class TTSConfig:
     output_stereo: bool
 
 @dataclass(frozen=True)
-class LLMConfig:
+class OpenAILLMConfig:
+    llm_type: str
     api_key: str
     model_name: str
     temperature: float
     request_timeout: int
+    max_trial: int
+
+@dataclass(frozen=True)
+class OpenAIRealtimeLLMConfig:
+    llm_type: str
+    api_key: str
+    model_name: str
     max_trial: int
 ###############################################################
 
@@ -119,6 +129,7 @@ def build_agent_dataclasses(config):
         server_id=config["minecraft_server"]["server_id"],
     )
     mineflayer_server = MineflayerServerConfig(
+        host=config["mineflayer_server"]["host"],
         port=config["mineflayer_server"]["port"],
     )
     minecraft = MinecraftConfig(
@@ -132,13 +143,25 @@ def build_agent_dataclasses(config):
         stuck_check_interval_sec=config["minecraft"]["stuck_check_interval_sec"],
         stuck_offset_range=config["minecraft"]["stuck_offset_range"],
     )
-    llm = LLMConfig(
-        api_key=config["openai"]["api_key"],
-        model_name=config["openai"]["model_name"],
-        temperature=config["openai"]["temperature"],
-        request_timeout=config["openai"]["request_timeout"],
-        max_trial=config["openai"]["max_trial"],
-    )
+    if config["llm_type"] == "openai":
+        llm = OpenAILLMConfig(
+            llm_type=config["llm_type"],
+            api_key=config["openai"]["api_key"],
+            model_name=config["openai"]["model_name"],
+            temperature=config["openai"]["temperature"],
+            request_timeout=config["openai"]["request_timeout"],
+            max_trial=config["openai"]["max_trial"],
+        )
+    elif config["llm_type"] == "openairealtime":
+        llm = OpenAIRealtimeLLMConfig(
+            llm_type=config["llm_type"],
+            api_key=config["openairealtime"]["api_key"],
+            model_name=config["openairealtime"]["model_name"],
+            max_trial=config["openairealtime"]["max_trial"],
+        )
+    else:
+        assert f"not match llm_type:[openai, openairealtime], your key:{config['llm_type']}"
+
     easy_llm_voice = WebSocketConfig(
         host=config["easy_llm_voice"]["host"],
         port=config["easy_llm_voice"]["port"],
@@ -159,115 +182,6 @@ def build_agent_dataclasses(config):
 ###############################################################
 
 ###############################################################
-def encode_opus_packets(pcm, sample_rate, frame_ms, application="voip"):
-    frame_samples = sample_rate * frame_ms // 1000
-    if frame_samples <= 0:
-        raise ValueError("invalid frame_ms")
-    codec = av.CodecContext.create("libopus", "w")
-    codec.sample_rate = sample_rate
-    codec.layout = "mono"
-    codec.format = "s16"
-    codec.options = {"application": application, "frame_duration": str(frame_ms)}
-    pcm = np.ascontiguousarray(pcm, dtype=np.int16)
-    packets = []
-    for start in range(0, len(pcm), frame_samples):
-        chunk = pcm[start:start + frame_samples]
-        if len(chunk) < frame_samples:
-            chunk = np.pad(chunk, (0, frame_samples - len(chunk)))
-        frame = av.AudioFrame(format="s16", layout="mono", samples=frame_samples)
-        frame.sample_rate = sample_rate
-        frame.planes[0].update(np.ascontiguousarray(chunk, dtype=np.int16).tobytes())
-        packets.extend(bytes(packet) for packet in codec.encode(frame))
-    packets.extend(bytes(packet) for packet in codec.encode(None))
-    return packets
-
-def decode_opus_packets(opus_packets, sample_rate, logger):
-    def normalize_decoded_frame(frame):
-        decoded = frame.to_ndarray()
-
-        if decoded.ndim == 1:
-            mono = decoded
-        elif decoded.ndim == 2:
-            if decoded.shape[0] == 1:
-                mono = decoded[0]
-            elif decoded.shape[0] == 2:
-                left = np.asarray(decoded[0], dtype=np.int32)
-                right = np.asarray(decoded[1], dtype=np.int32)
-                if np.array_equal(left, right):
-                    mono = left.astype(np.int16)
-                else:
-                    mono = ((left + right) // 2).astype(np.int16)
-            else:
-                mono = decoded.reshape(-1)
-        else:
-            mono = decoded.reshape(-1)
-
-        mono = np.asarray(mono, dtype=np.int16).copy()
-
-        if len(mono) >= 2 and len(mono) % 2 == 0 and np.array_equal(mono[0::2], mono[1::2]):
-            mono = mono[::2]
-
-        return mono
-
-    codec = av.CodecContext.create("libopus", "r")
-    codec.sample_rate = sample_rate
-    decoded_chunks = []
-    try:
-        for opus_packet in opus_packets:
-            packet = av.Packet(opus_packet)
-            for frame in codec.decode(packet):
-                decoded_chunks.append(normalize_decoded_frame(frame))
-
-        for frame in codec.decode(None):
-            decoded_chunks.append(normalize_decoded_frame(frame))
-    finally:
-        del codec
-
-    if not decoded_chunks:
-        return np.zeros(0, dtype=np.int16)
-
-    return np.concatenate(decoded_chunks)
-
-def split_packets_by_speaker(obs: dict, agent_name: str):
-    packets_by_speaker = {}
-    for item in obs.get("items", []):
-        if item.get("type") != "heard_audio_batch":
-            continue
-        listeners = item.get("data", {}).get("listeners", {})
-        for listener_name, listener_data in listeners.items():
-            for packet in listener_data.get("heard_packets", []):
-                if packet["speaker_name"] == agent_name:
-                    continue
-
-                speaker_name = packet["speaker_name"]
-                packets_by_speaker.setdefault(speaker_name, []).append({
-                    "listener_name": listener_name,
-                    "speaker_uuid": packet["speaker_uuid"],
-                    "captured_at_ms": packet["captured_at_ms"],
-                    "opus_bytes": base64.b64decode(packet["opus_data_base64"]),
-                })
-    for speaker_name in packets_by_speaker:
-        packets_by_speaker[speaker_name].sort(key=lambda p: p["captured_at_ms"])
-    return packets_by_speaker
-
-def mix_timed_chunks(chunks, sample_rate=48000):
-    if not chunks:
-        return np.zeros(0, dtype=np.int16), None, None
-    t0 = min(chunk["captured_at_ms"] for chunk in chunks)
-    total_samples = 0
-    for chunk in chunks:
-        start_sample = int((chunk["captured_at_ms"] - t0) * sample_rate / 1000)
-        total_samples = max(total_samples, start_sample + len(chunk["pcm"]))
-    mixed = np.zeros(total_samples, dtype=np.int32)
-    for chunk in chunks:
-        start_sample = int((chunk["captured_at_ms"] - t0) * sample_rate / 1000)
-        end_sample = start_sample + len(chunk["pcm"])
-        mixed[start_sample:end_sample] += chunk["pcm"].astype(np.int32)
-    mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
-    end_ms = t0 + int(len(mixed) * 1000 / sample_rate)
-    return mixed, t0, end_ms
-
-###############################################################
 class Agent:
     def __init__(
         self,
@@ -281,7 +195,7 @@ class Agent:
         mineflayer_server_cfg: MineflayerServerConfig,
         easy_llm_cfg: WebSocketConfig,
         minecraft_cfg: MinecraftConfig,
-        llm_cfg: LLMConfig,
+        llm_cfg: OpenAILLMConfig | OpenAIRealtimeLLMConfig,
         easy_llm_voice_cfg: WebSocketConfig,
         opus_cfg: OpusConfig,
         tts_cfg: TTSConfig,
@@ -316,11 +230,12 @@ class Agent:
 
         self.belief = None
         self.world_config = None
+        self.belief_ready_event = threading.Event()
 
-        self.llm = OpenAILLM(self.log_dir, self.llm_cfg.api_key, self.llm_cfg.model_name, self.llm_cfg.temperature, self.llm_cfg.request_timeout, self.llm_cfg.max_trial)
+        self.llm = self.setup_llm(self.prompts["system"]["primitive"])
 
         self.MineflayerJsClient_logger = make_file_logger("MineflayerJsClient", f"{self.log_dir}/MineflayerJsClient.log")
-        self.js_client = MineflayerJsClient(port=self.mineflayer_server_cfg.port, logger=self.MineflayerJsClient_logger)
+        self.js_client = MineflayerJsClient(host=self.mineflayer_server_cfg.host, port=self.mineflayer_server_cfg.port, logger=self.MineflayerJsClient_logger)
         self.mineflayer_variables = build_mineflayer_variables(self.agent_name, self.minecraft_cfg.offset, self.minecraft_cfg.env_box)
 
         self.easy_llm_ws = WebsocketConnector("easy_llm", self.easy_llm_cfg.host, self.easy_llm_cfg.port, True)
@@ -344,6 +259,15 @@ class Agent:
     def currentspeakername(self, value: str | None) -> None:
         with self._speaker_lock:
             self._currentspeakername = value
+            
+    #################################### setup #####################################
+    def setup_llm(self, system_prompt=""):
+        if self.llm_cfg.llm_type == "openai":
+            return OpenAILLM(self.log_dir, self.llm_cfg.api_key, self.llm_cfg.model_name, self.llm_cfg.temperature, self.llm_cfg.request_timeout, self.llm_cfg.max_trial)
+        elif self.llm_cfg.llm_type == "openairealtime":
+            return OpenAIRealtimeLLM(self.log_dir, self.llm_cfg.api_key, self.llm_cfg.model_name, system_prompt, self.llm_cfg.max_trial)
+
+    ################################################################################
 
     ########################### action methods from mod ############################
     def add_avatar(self):
@@ -358,23 +282,45 @@ class Agent:
         self.js_client.join(server_id=self.minecraft_server_cfg.server_id, mc_name=self.agent_name, mc_port=self.minecraft_server_cfg.port, mc_host=self.minecraft_server_cfg.host)
         self.js_client.update_agent_variables(server_id=self.minecraft_server_cfg.server_id, mc_name=self.agent_name, variables=self.mineflayer_variables)
     
+    def add_admin_avator(self):
+        operator_mc_name = ensure_operator_bot_connected(
+            js_client=self.js_client,
+            server_id=self.minecraft_server_cfg.server_id,
+            mc_host=self.minecraft_server_cfg.host,
+            mc_port=self.minecraft_server_cfg.port,
+            mc_name=self.agent_name
+        )
+        grant_operator_via_mineflayer(
+            js_client=self.js_client,
+            server_id=self.minecraft_server_cfg.server_id,
+            mc_name=self.agent_name,
+            operator_mc_name=operator_mc_name,
+        )
+        self.agent_logger.info(
+            'Granted operator to "%s" via operator bot %s.',
+            self.agent_name,
+            operator_mc_name,
+        )
+
     def exec_js(self, js):
         self.js_client.exec_js(server_id=self.minecraft_server_cfg.server_id, mc_name=self.agent_name, code=js, primitives=self.primitives, sync=False, timeout=180)
     ##################################################################################
 
     #################################### LLM ######################################
-    def create_prompt(self, human_prompt_type, system_prompt_type):
+    def create_prompt(self, human_prompt_type, system_prompt_type, extra_variables:dict={}):
         human_base_prompt, system_prompt = self.prompts["human"][human_prompt_type], self.prompts["system"][system_prompt_type]
         #--- BeliefNest依存　情報の取得 + プロンプトへの入力 ---# # BeliefNest
-        human_variables = {"self_name":self.agent_name}
+        extra_variables.update({"self_name":self.agent_name})
         try:
             loader = self.belief.create_current_observation_loader()
-            human_prompt = self.belief.load_from_template(loader, human_base_prompt, variables=human_variables, extra_filters=[], allow_filter_override=True)
+            human_prompt = self.belief.load_from_template(loader, human_base_prompt, variables=extra_variables, extra_filters=[], allow_filter_override=True)
         except Exception as e:
             self.agent_logger.critical("create_prompt: テンプレート展開エラー: %s", e)
             self.agent_logger.critical(traceback.format_exc())
             sys.exit(1) 
         #----------------------------------------------------#
+        self.agent_logger.info(f"----------------------------------------------")
+        self.agent_logger.info(f"system_prompt:{system_prompt}")
         self.agent_logger.info(f"----------------------------------------------")
         self.agent_logger.info(f"human_prompt:{human_prompt}")
         self.agent_logger.info(f"----------------------------------------------")
@@ -389,7 +335,7 @@ class Agent:
         return code
     
     def generate_action_js(self):
-        human_prompt, system_prompt = self.create_prompt(human_prompt_type="generate_action", system_prompt_type="primitive")
+        human_prompt, system_prompt = self.create_prompt(human_prompt_type="generate_action", system_prompt_type="primitive", extra_variables={})
         format_prompts = self.llm.format_prompts_for_llm([("system", system_prompt), ("user", human_prompt)])
         javascript = self.execute_llm(format_prompts, validate_js=True)
         return javascript
@@ -473,7 +419,7 @@ class Agent:
                 chunk += b"\x00" * (self.asr_chunk_bytes - len(chunk))
             output_q.put(chunk)
 
-    def feed_mixed_pcm_to_asr(self, mixed_pcm: np.ndarray, end_ms: int, output_q: queue.Queue):
+    def feed_mixed_pcm_to_asr(self, mixed_pcm: np.ndarray, end_ms: int, output_q: queue.Queue): # 音声形式をrealtimeSTT用に変換
         if self.opus_cfg.sample_rate == 16000:
             pcm_bytes = mixed_pcm.tobytes()
         else:
@@ -523,14 +469,21 @@ class Agent:
 
     ################################# belief ####################################
     def update_belief_loop(self, input_from_minecraft_q: queue.Queue, input_from_asr_q: queue.Queue):
+        block_snapshot_buffer = {}
         while True:
             try:
                 obs = input_from_minecraft_q.get(timeout=0.1)
             except queue.Empty:
                 continue
-            if any(item.get("type") == "block_snapshot" for item in obs.get("items", [])):
-                self.world_config = build_world_config_from_first_blocks_data(obs)
-                self.belief = StandaloneWorldObservationRuntime.from_world_config(self.world_config, offset=[0,0,0])
+
+            snapshot_result = build_world_config_from_block_snapshot_buffer(obs, block_snapshot_buffer)
+            if snapshot_result is not None:
+                self.world_config, snapshot_info = snapshot_result
+                self.belief = StandaloneWorldObservationRuntime.from_world_config(self.world_config, offset=[0, 0, 0])
+                self.belief_ready_event.set()
+                self.agent_logger.info("block_snapshot complete: requestId=%s sequences=%s blocks=%s/%s chests=%s", snapshot_info["request_id"], snapshot_info["sequences"], snapshot_info["actual_count"], snapshot_info["expected_count"], snapshot_info["chest_count"])
+                continue
+            if obs.get("type") == "block_snapshot" or any(item.get("type") == "block_snapshot"for item in obs.get("items", [])):
                 continue
             if self.belief is not None:
                 while True:
@@ -586,6 +539,7 @@ class Agent:
 
     def run(self):
         self.add_avatar()
+        self.add_admin_avator()
 
         easy_llm_voice_ws_thread = threading.Thread(target=self.easy_llm_voice_ws.run, daemon=True)
         easy_llm_voice_ws_thread.start()
@@ -606,6 +560,9 @@ class Agent:
         get_asr_result_thread.start()
         update_belief_loop_thread = threading.Thread(target=self.update_belief_loop, args=(self.for_belief_update_q, self.result_asr_for_belief_q,), daemon=True)
         update_belief_loop_thread.start()
+
+        if not self.belief_ready_event.is_set():
+            self.belief_ready_event.wait()
 
         self.asr.run()
 

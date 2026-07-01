@@ -14,11 +14,12 @@ easy_llm:
   port: 7891
 
 minecraft_server:
-  host: localhost
+  host: mc_server_flat_25565
   port: 25565
   server_id: localhost:25565
 
 mineflayer_server:
+  host: beliefnestjs
   port: 3000
 
 minecraft:
@@ -26,16 +27,23 @@ minecraft:
   env_box:
     min: [-20, -61, -20]
     max: [20, -55, 20]
-  can_dig_when_move: false
+  can_dig_when_move: true
   move_timeout_sec: 120
   stuck_check_interval_sec: 1
   stuck_offset_range: 1
+
+llm_type: openairealtime
 
 openai:
   api_key: sk-xxx
   model_name: gpt-5.2
   temperature: 0.7
   request_timeout: 120
+  max_trial: 3
+
+openairealtime:
+  api_key: sk-xxx
+  model_name: gpt-realtime-2
   max_trial: 3
 
 easy_llm_voice:
@@ -48,7 +56,7 @@ opus:
   application: voip
 
 tts:
-  host: localhost
+  host: voicevox_engine
   port: 50021
   enable_interrogative_upspeak: true
   output_sampling_rate: 48000

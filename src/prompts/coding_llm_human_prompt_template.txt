@@ -30,6 +30,6 @@ When thinking about the action/utterance you will perform next, carry out the fo
       Based on the Minecraft observation information in <Infomation>, think about the action/utterance you will perform from now on.
       You do not know what thoughts other people actually have or how they are trying to act.
       Output the action/utterance you generate to perform next based on [Rules when generating commands, Commands, Output format].
-      Also, for the purpose of communication, be sure to make all utterances in Japanese.
+      Also, for the purpose of communication, be sure to make all utterances in English.
 
     Be sure to follow the output format

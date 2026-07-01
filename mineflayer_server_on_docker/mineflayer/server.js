@@ -221,6 +221,10 @@ async function execJs({serverId, mcName, code, primitives}){
     };
 }
 
+async function getAllMcNames({serverId, mcName}){
+    return await postMessageToWorker(serverId, mcName, "getAllMcNames", {});
+}
+
 async function stopMoving({serverId, mcName}){
     await postMessageToWorker(serverId, mcName, "stopMoving", {});
 }
@@ -357,6 +361,7 @@ wss.on('connection', (ws) => {
             case "setup": await setup(params); break;
         
             case "execJs": response = await execJs(params); break;
+            case "getAllMcNames": response = await getAllMcNames(params); break;
             case "stopMoving": await stopMoving(params); break;
             case "execMc": await execMc(params); break;
 
