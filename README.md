@@ -240,16 +240,12 @@ After that, at any time, press the Enter key once in the Agent-sally terminal to
 
 ## Recommended Environment
 
-| Item | Minimum | Recommended |
-|---|---|---|
-| CPU | 8 cores | 12 cores or more |
-| RAM | 16 GB | 32 GB |
-| GPU VRAM | 6 GB | 8 GB or more |
-| Storage (free space) | 50 GB (SSD) | — |
-| OS | Windows 11 | — |
-| Docker Desktop | 4.20 or later | — |
-| NVIDIA Driver | 525.60.13 or later (CUDA 12.1 supported) | — |
-| NVIDIA Container Toolkit | 1.13.0 or later | — |
+- CPU: 12コア
+- RAM: 16GB
+- GPU: VRAM 6GB
+- NVIDIA Driver: 525.60.13 or later (CUDA 12.1 supported)
+- NVIDIA Container Toolkit: 1.13.0 or later
+
 
 ## Development Environment
 

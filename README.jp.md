@@ -240,11 +240,11 @@ op sally
 以降は任意のタイミングで、Agent-sally ターミナル に対して Enter キーを一度入力すると、エージェントが行動・発話を生成します。
 
 ## 推奨環境
-CPU: 12コア
-RAM: 16GB
-GPU: VRAM 6GB
-NVIDIA ドライバー: 525.60.13 以上 (CUDA Version >= 12.1 が利用可能)
-NVIDIA Container Toolkit: 1.13.0 以上
+- CPU: 12コア
+- RAM: 16GB
+- GPU: VRAM 6GB
+- NVIDIA ドライバー: 525.60.13 以上 (CUDA Version >= 12.1 が利用可能)
+- NVIDIA Container Toolkit: 1.13.0 以上
 
 ## 開発環境
 
