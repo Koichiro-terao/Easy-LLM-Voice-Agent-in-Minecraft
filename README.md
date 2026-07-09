@@ -10,6 +10,10 @@ Easy LLM Voice is a platform for developing AI agents that can play together wit
 
 ## Latest Updates
 
+### 2026-07-10
+- Provided first-person observation data to the AI ​​agent
+- Refactored main.py
+
 ### 2026-07-02
 - Created a Docker Image for running the AI agent
 
