@@ -1,28 +1,25 @@
 <Information>
-Thought:
-{{ branch | thought }}
-
 Chat log:
-{{ branch | chat_log }}
+{{ chat_log() }}
 
 Position:
-{{ branch | position( self_name ) }}
+{{ position( self_name ) }}
 
 Chest:
-{{ branch | chests }}
+{{ chests() }}
 
 Inventory:
-{{ branch | inventory(self_name) }}
+{{ inventory(self_name) }}
 
 Other players:
-{{ branch | other_players(self_name) }}
+{{ other_players(self_name) }}
 
 Blocks seen so far:
-{{ branch | blocks_and_visibilities(["chest", "oak_log", "crafting_table", "iron_ore", "stone", "light_weighted_pressure_plate"]) }}
+{{ blocks_and_visibilities(["chest", "oak_log", "crafting_table", "iron_ore", "stone", "light_weighted_pressure_plate"]) }}
 
 <History of player visibilities and actions>
 [My({{self_name}}'s) perspective]
-{{ branch | events_and_visibilities }}
+{{ events_and_visibilities() }}
 
 # あなたのタスク
 あなたが次に行う行動・発言を考えるにあたって、以下の内容をstepbystepで行ってください。

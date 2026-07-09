@@ -2,7 +2,8 @@
 websocket-client
 websockets>=12.0
 requests>=2.32.0
-numpy<2.0.0
+numpy>=1.26.0
+numba
 pyogg
 pyyaml
 av

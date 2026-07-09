@@ -15,7 +15,9 @@ services:
       CREATE_CONSOLE_IN_PIPE: "true"
       MODRINTH_PROJECTS: |
         fabric-api
+        simple-voice-chat:fabric-1.21.1-2.6.17
         easy-llm
+        easy-llm-voice
       OPS: "36881d51-7477-3eb6-91a1-dfc11065590d"
       ONLINE_MODE: "FALSE"
       DIFFICULTY: "peaceful"

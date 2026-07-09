@@ -4,6 +4,7 @@ import argparse
 import bisect
 import json
 import math
+import os
 import re
 from contextvars import ContextVar
 from copy import deepcopy
@@ -15,9 +16,11 @@ from collections import defaultdict
 
 from jinja2 import Environment, StrictUndefined
 
-EXCLUDE_NAMES: list[str] = ["Camera", "admin"]
+__version__ = "belief_07080443"
 
 current_loader = ContextVar("current_loader")
+ADMIN_MC_NAME = os.environ.get("MINEFLAYER_ADMIN_MC_NAME", "admin")
+EXCLUDE_NAMES: list[str] = ["Camera", "admin"]
 
 
 def _vec_to_key(vec: Iterable[int | float]) -> tuple[int, int, int]:
@@ -29,20 +32,17 @@ def _vec_to_key(vec: Iterable[int | float]) -> tuple[int, int, int]:
 class ParsedObservation:
     type: str
     data: dict
-    server_id: str
     tick: int | None
 
 
 @dataclass(frozen=True)
 class PlayersTickObservation:
-    server_id: str
     tick: int | None
     players: dict
 
 
 @dataclass(frozen=True)
 class IncrementalEventObservation:
-    server_id: str
     event_type: str
     mc_name: str | None
     payload: dict
@@ -55,11 +55,10 @@ class InterpretedObservation:
 
 
 class ObservationParser:
-    def parse(self, raw_obs: dict, fallback_server_id: str) -> ParsedObservation:
+    def parse(self, raw_obs: dict) -> ParsedObservation:
         return ParsedObservation(
             type=raw_obs["type"],
             data=raw_obs["data"],
-            server_id=raw_obs.get("server_id", fallback_server_id),
             tick=raw_obs.get("tick"),
         )
 
@@ -115,7 +114,6 @@ class MinecraftObservationInterpreter:
                 players[player_data["name"]] = self._normalize_player_data(player_data)
             players_ticks.append(
                 PlayersTickObservation(
-                    server_id=parsed_obs.server_id,
                     tick=parsed_obs.tick,
                     players=players,
                 )
@@ -124,7 +122,6 @@ class MinecraftObservationInterpreter:
 
         event_type = parsed_obs.type
         data = parsed_obs.data
-        server_id = parsed_obs.server_id
 
         if event_type == "container_close" and (
             "containerBlock" not in data or data["containerBlock"] != "chest"
@@ -139,7 +136,7 @@ class MinecraftObservationInterpreter:
         elif event_type == "chat":
             tmp_mc_name = data["player"]["name"]
             msg = data["message"]
-            if tmp_mc_name == "admin":
+            if tmp_mc_name == ADMIN_MC_NAME:
                 match = re.match(r"^([^:]+) said: (.*)$", msg)
                 if not match:
                     raise ValueError(f"Invalid admin chat message: {msg}")
@@ -153,7 +150,6 @@ class MinecraftObservationInterpreter:
 
         incremental_events.append(
             IncrementalEventObservation(
-                server_id=server_id,
                 event_type=event_type,
                 mc_name=mc_name,
                 payload=data,
@@ -205,6 +201,15 @@ class State:
         self.containers = Vec3Map(deepcopy(state_dict["containers"]))
         self.events = deepcopy(state_dict["events"])
 
+    def to_dict(self) -> dict:
+        return {
+            "globalTick": self.global_tick,
+            "status": deepcopy(self.status),
+            "blocks": self.blocks.to_dict(),
+            "containers": self.containers.to_dict(),
+            "events": deepcopy(self.events),
+        }
+
     def update(self, obs: dict) -> None:
         global_tick = int(obs["globalTick"])
         status = obs["objective"]["status"]
@@ -237,11 +242,20 @@ class State:
     def _update_status_state(self, status: dict, events: list, has_inventory_info: dict) -> None:
         for agent_name, agent_status in status.items():
             self.status.setdefault(agent_name, {"visible": {}, "hidden": {}})
-            self.status[agent_name]["visible"] = deepcopy(agent_status["visible"])
+            if "visible" in agent_status:
+                self.status[agent_name]["visible"] = deepcopy(agent_status["visible"])
+            else:
+                self.status[agent_name].pop("visible", None)
             if "hidden" in agent_status:
                 self.status[agent_name]["hidden"] = deepcopy(agent_status["hidden"])
-            self.status[agent_name].setdefault("hidden", {})
-            self.status[agent_name]["hidden"].setdefault("inventory", {})
+            else:
+                self.status[agent_name].pop("hidden", None)
+            if "last_seen" in agent_status:
+                self.status[agent_name]["last_seen"] = deepcopy(agent_status["last_seen"])
+            else:
+                self.status[agent_name].pop("last_seen", None)
+            if "hidden" in self.status[agent_name]:
+                self.status[agent_name]["hidden"].setdefault("inventory", {})
 
         def _add(agent_name: str, name: str, count: int) -> None:
             if has_inventory_info.get(agent_name):
@@ -344,6 +358,21 @@ class State:
             self.containers.set(pos, chest_items)
 
 
+def advance_state_one_observation(state: State, observation_or_legacy: dict) -> None:
+    if "objective" in observation_or_legacy:
+        obs = deepcopy(observation_or_legacy)
+    else:
+        obs = {
+            "globalTick": observation_or_legacy["globalTick"],
+            "objective": {
+                "status": deepcopy(observation_or_legacy["status"]),
+                "events": deepcopy(observation_or_legacy["events"]),
+                "blocksToUpdate": deepcopy(observation_or_legacy["blocksToUpdate"]),
+            },
+        }
+    state.update(obs)
+
+
 class ObservationHistory:
     def __init__(self) -> None:
         self.objective_list: list[dict] = []
@@ -356,8 +385,6 @@ class ObservationHistory:
             "events": deepcopy(obs["objective"]["events"]),
             "blocksToUpdate": deepcopy(obs["objective"]["blocksToUpdate"]),
         }
-        if "visibility" in obs["objective"]:
-            objective["visibility"] = deepcopy(obs["objective"]["visibility"])
         self.objective_list.append(objective)
         self._ticks.append(int(obs["globalTick"]))
 
@@ -381,47 +408,86 @@ class ObservationHistory:
         return deepcopy(self.objective_list), deepcopy(self._ticks)
 
 
+class BeliefStateHistory:
+    def __init__(
+        self,
+        *,
+        initial_state: dict,
+        main_agent_name: str | None = None,
+    ) -> None:
+        self.initial_state = deepcopy(initial_state)
+        self.main_agent_name = main_agent_name
+        self.state = State(self.initial_state)
+        self.history = ObservationHistory()
+
+    def update_state(self, observation_or_legacy: dict) -> None:
+        advance_state_one_observation(self.state, observation_or_legacy)
+
+    def append_history(self, observation_or_legacy: dict) -> None:
+        if "objective" in observation_or_legacy:
+            obs = deepcopy(observation_or_legacy)
+        else:
+            obs = {
+                "globalTick": observation_or_legacy["globalTick"],
+                "objective": {
+                    "status": deepcopy(observation_or_legacy["status"]),
+                    "events": deepcopy(observation_or_legacy["events"]),
+                    "blocksToUpdate": deepcopy(observation_or_legacy["blocksToUpdate"]),
+                },
+            }
+        self.history.add(obs)
+
+    def add_observation(self, observation_or_legacy: dict) -> None:
+        self.update_state(observation_or_legacy)
+        self.append_history(observation_or_legacy)
+
+    def to_loader(self) -> "WorldObservationLoader":
+        objective_list, ticks = self.history.snapshot()
+        return WorldObservationLoader(
+            initial_state=self.initial_state,
+            state_dict=self.state.to_dict(),
+            objective_list=objective_list,
+            ticks=ticks,
+            main_agent_name=self.main_agent_name,
+        )
+
+
 class WorldObservationLoader:
-    def __init__(self, *, branch: str, state_dict: dict, objective_list: list[dict], ticks: list[int]):
-        self.branch = branch
-        self.state_dict = {branch: deepcopy(state_dict)}
-        self.objective_list = {branch: deepcopy(objective_list)}
-        self.tick_dict = {branch: ticks[-1] if ticks else -1}
-        self.tick_list = {branch: deepcopy(ticks)}
+    def __init__(
+        self,
+        *,
+        initial_state: dict,
+        state_dict: dict,
+        objective_list: list[dict],
+        ticks: list[int],
+        main_agent_name: str | None = None,
+    ):
+        self.initial_state = deepcopy(initial_state)
+        self.state_dict =  deepcopy(state_dict)
+        self.objective_list = deepcopy(objective_list)
+        self.tick_dict = ticks[-1] if ticks else -1
+        self.tick_list = deepcopy(ticks)
+        self.main_agent_name = main_agent_name
+        self.agent_list = sorted(self.state_dict["status"].keys())
 
-    def _assert_branch(self, branch_str: str) -> None:
-        if branch_str != self.branch:
-            raise KeyError(f'Only "{self.branch}" is available. got="{branch_str}"')
-
-    def get_latest_state(self, branch_str: str) -> tuple[dict, int]:
-        self._assert_branch(branch_str)
-        state = deepcopy(self.state_dict[branch_str])
+    def get_latest_state(self) -> tuple[dict, int]:
+        state = deepcopy(self.state_dict)
         return state, int(state["globalTick"])
 
-    def get_latest_history(self, branch_str: str) -> tuple[dict, int]:
-        self._assert_branch(branch_str)
-        tick = self.tick_dict[branch_str]
+    def get_latest_history(self) -> tuple[dict, int]:
+        tick = self.tick_dict
         if tick < 0:
             raise ValueError("No observation history has been recorded yet.")
-        objective = deepcopy(self.objective_list[branch_str][-1])
+        objective = deepcopy(self.objective_list[-1])
         return objective, int(objective["globalTick"])
 
-    def get_history(self, branch_str: str, tick: int) -> tuple[dict, int]:
-        self._assert_branch(branch_str)
-        ticks = self.tick_list[branch_str]
+    def get_history(self, tick: int) -> tuple[dict, int]:
+        ticks = self.tick_list
         idx = bisect.bisect_left(ticks, tick)
         if idx >= len(ticks) or ticks[idx] != tick:
             raise KeyError(f"tick {tick} not found")
-        objective = deepcopy(self.objective_list[branch_str][idx])
+        objective = deepcopy(self.objective_list[idx])
         return objective, int(tick)
-
-    def get_previous_block_vis(self, branch_str: str, now_tick: int) -> tuple[None, None]:
-        del now_tick
-        self._assert_branch(branch_str)
-        raise NotImplementedError(
-            "This standalone world loader does not record child-belief block visibility."
-        )
-
 
 class StandaloneWorldObservationRuntime:
     def __init__(
@@ -430,13 +496,15 @@ class StandaloneWorldObservationRuntime:
         env_box: list[list[int]],
         initial_state: dict,
         offset: Optional[list[int]] = None,
-        branch: str = "world[default]",
-        server_id: str = "world",
+        enable_player_visibility: bool = True,
+        enable_block_visibility: bool = True,
+        block_visibility_interval: int = 1,
     ) -> None:
         self.env_box = deepcopy(env_box)
         self.offset = list(offset or [0, 0, 0])
-        self.branch = branch
-        self.server_id = server_id
+        self.enable_player_visibility = bool(enable_player_visibility)
+        self.enable_block_visibility = bool(enable_block_visibility)
+        self.block_visibility_interval = max(1, int(block_visibility_interval))
 
         normalized_state = deepcopy(initial_state)
         normalized_state.setdefault("globalTick", -1)
@@ -445,8 +513,10 @@ class StandaloneWorldObservationRuntime:
         normalized_state.setdefault("containers", {"__Vec3Map__": []})
         normalized_state.setdefault("events", {})
 
-        self.state = State(normalized_state)
-        self.obs_history = ObservationHistory()
+        self.world_belief = BeliefStateHistory(initial_state=normalized_state)
+        self.initial_state = self.world_belief.initial_state
+        self.state = self.world_belief.state
+        self.obs_history = self.world_belief.history
         self.parser = ObservationParser()
         self.interpreter = MinecraftObservationInterpreter()
 
@@ -455,6 +525,7 @@ class StandaloneWorldObservationRuntime:
 
         self.received_latest_tick = int(normalized_state["globalTick"])
         self.received_latest_server_tick: int | None = None
+        self.last_block_visibility_tick: int | None = None
 
     @classmethod
     def from_world_config(
@@ -462,25 +533,17 @@ class StandaloneWorldObservationRuntime:
         world_config: dict,
         *,
         offset: Optional[list[int]] = None,
-        branch: str = "world[default]",
-        server_id: str = "world",
+        enable_player_visibility: bool = True,
+        enable_block_visibility: bool = True,
+        block_visibility_interval: int = 1,
     ) -> "StandaloneWorldObservationRuntime":
         return cls(
             env_box=world_config["envBox"],
             initial_state=world_config["state"],
             offset=offset,
-            branch=branch,
-            server_id=server_id,
-        )
-
-    def create_current_observation_loader(self) -> WorldObservationLoader:
-        state_dict = self._to_legacy_format()
-        objective_list, ticks = self.obs_history.snapshot()
-        return WorldObservationLoader(
-            branch=self.branch,
-            state_dict=state_dict,
-            objective_list=objective_list,
-            ticks=ticks,
+            enable_player_visibility=enable_player_visibility,
+            enable_block_visibility=enable_block_visibility,
+            block_visibility_interval=block_visibility_interval,
         )
 
     def load_from_template(
@@ -492,7 +555,6 @@ class StandaloneWorldObservationRuntime:
         allow_filter_override: bool = False,
     ) -> str:
         variables = {} if variables is None else dict(variables)
-        variables["branch"] = self.branch
         return load_from_template(
             loader,
             template,
@@ -500,43 +562,28 @@ class StandaloneWorldObservationRuntime:
             extra_filters=extra_filters,
             allow_filter_override=allow_filter_override,
         )
-
-    def add_raw_observations(self, raw_messages: Iterable[dict], *, finalize: bool = True) -> list[dict]:
-        emitted_obs = []
-        for raw_message in raw_messages:
-            obs = self.add_raw_observation(raw_message)
-            if obs is not None:
-                emitted_obs.append(obs)
-        if finalize:
-            flushed = self.finalize_pending_events()
-            if flushed is not None:
-                emitted_obs.append(flushed)
-        return emitted_obs
-
-    def add_raw_observation(self, raw_message: dict, *, fallback_server_id: Optional[str] = None) -> Optional[dict]:
-        fallback_server_id = fallback_server_id or self.server_id
+        
+    def build_raw_observation(self, raw_message: dict) -> Optional[dict]:
         self.raw_messages.append(deepcopy(raw_message))
+        # print(f"pending_events:{self.pending_events}")
 
-        if "objective" in raw_message and "visibility" in raw_message:
-            return self.add_prebuilt_observation(raw_message, server_tick=raw_message.get("serverTick"))
-
+        if "objective" in raw_message:
+            raise ValueError()
+        # if "objective" in raw_message and "visibility" in raw_message:
+        #     return self.build_prebuilt_observation(raw_message, server_tick=raw_message.get("serverTick"))
         if "eventName" in raw_message and "visible" in raw_message:
             self.pending_events.append(deepcopy(raw_message))
             return None
 
         if raw_message.get("type") == "event_batch":
             last_obs = None
-            batch_server_id = raw_message.get("server_id", fallback_server_id)
             for item in raw_message.get("items", []):
-                if batch_server_id and "server_id" not in item:
-                    item = dict(item)
-                    item["server_id"] = batch_server_id
-                candidate = self.add_raw_observation(item, fallback_server_id=batch_server_id)
+                candidate = self.build_raw_observation(item)
                 if candidate is not None:
                     last_obs = candidate
             return last_obs
 
-        parsed = self.parser.parse(raw_message, fallback_server_id)
+        parsed = self.parser.parse(raw_message)
         interpreted = self.interpreter.interpret(parsed)
 
         for event_obs in interpreted.incremental_events:
@@ -555,45 +602,25 @@ class StandaloneWorldObservationRuntime:
             return None
         return _attach_event_summary(latest_obs)
 
-    def add_prebuilt_observation(
-        self,
-        obs: dict,
-        *,
-        server_tick: Optional[int] = None,
-        resume_from_pause: bool = False,
-    ) -> dict:
-        normalized_obs = deepcopy(obs)
-        if "globalTick" not in normalized_obs:
-            normalized_obs["globalTick"] = self._next_global_tick(server_tick, resume_from_pause=resume_from_pause)
-        self.received_latest_tick = int(normalized_obs["globalTick"])
-        if server_tick is not None:
-            self.received_latest_server_tick = int(server_tick)
-        self.state.update(normalized_obs)
-        self.obs_history.add(normalized_obs)
-        return _attach_event_summary(normalized_obs)
+    # def build_pending_events_observation(self, *, server_tick: Optional[int] = None) -> Optional[dict]:
+    #     if not self.pending_events:
+    #         return None
 
-    def finalize_pending_events(self, *, server_tick: Optional[int] = None) -> Optional[dict]:
-        if not self.pending_events:
-            return None
+    #     status = deepcopy(self.state.status)
+    #     if server_tick is None and self.received_latest_server_tick is not None:
+    #         server_tick = self.received_latest_server_tick + 1
 
-        status = deepcopy(self.state.status)
-        if server_tick is None and self.received_latest_server_tick is not None:
-            server_tick = self.received_latest_server_tick + 1
-
-        obs = {
-            "globalTick": self._next_global_tick(server_tick, resume_from_pause=False),
-            "objective": {
-                "status": status,
-                "events": deepcopy(self.pending_events),
-                "blocksToUpdate": self._drain_updated_blocks_from_events(self.pending_events),
-            },
-            "visibility": {},
-        }
-        self.pending_events = []
-        self.state.update(obs)
-        self.obs_history.add(obs)
-        return _attach_event_summary(obs)
-
+    #     obs = {
+    #         "globalTick": self._next_global_tick(server_tick, resume_from_pause=False),
+    #         "objective": {
+    #             "status": status,
+    #             "events": deepcopy(self.pending_events),
+    #             "blocksToUpdate": self._drain_updated_blocks_from_events(self.pending_events),
+    #         },
+    #     }
+    #     self.pending_events = []
+    #     return _attach_event_summary(obs)
+        
     def _next_global_tick(self, server_tick: Optional[int], *, resume_from_pause: bool = False) -> int:
         if server_tick is None:
             self.received_latest_tick += 1
@@ -641,10 +668,7 @@ class StandaloneWorldObservationRuntime:
                 "events": event_list,
                 "blocksToUpdate": self._drain_updated_blocks_from_events(event_list),
             },
-            "visibility": {},
         }
-        self.state.update(obs)
-        self.obs_history.add(obs)
         return obs
 
     def _abs_to_rel_vec3(self, vec: Any, *, data_type=int) -> dict:
@@ -703,19 +727,15 @@ class StandaloneWorldObservationRuntime:
             }
 
         if event_obs.event_type == "craft_item":
-            visible = {
-                "itemName": data["item"],
-                "producedCount": data.get("count", 1),
-                "consumedItems": {name: count for name, count in data.get("consumed", {}).items()},
-            }
-
-            if data.get("tablePos") is not None:
-                visible["craftingTablePos"] = self._abs_to_rel_vec3(data["tablePos"])
-
             return {
                 "eventName": "craftItem",
                 "agentName": agent_name,
-                "visible": visible,
+                "visible": {
+                    "itemName": data["item"],
+                    "producedCount": 1,
+                    "consumedItems": {name: count for name, count in data["consumed"].items()},
+                    "craftingTablePos": self._abs_to_rel_vec3(data["tablePos"]),
+                },
                 "hidden": {},
             }
 
@@ -805,16 +825,6 @@ class StandaloneWorldObservationRuntime:
             )
         return event_list
 
-    def _to_legacy_format(self) -> dict:
-        return {
-            "globalTick": self.state.global_tick,
-            "status": deepcopy(self.state.status),
-            "blocks": self.state.blocks.to_dict(),
-            "containers": self.state.containers.to_dict(),
-            "events": deepcopy(self.state.events),
-        }
-
-
 def _iter_events(latest_state: dict) -> list[tuple[int, dict]]:
     rows = []
     for tick, events_at_tick in latest_state["events"].items():
@@ -874,11 +884,11 @@ def _summarize_events(obs: dict) -> dict:
     return summary
 
 def _attach_event_summary(obs: dict) -> dict:
-    obs["event_summary"] = _summarize_events(obs)
+    obs["current_event"] = _summarize_events(obs)
     return obs
 
 def get_event_result(obs: dict, event_name: str) -> dict:
-    return obs.get("event_summary", {}).get(
+    return obs.get("current_event", {}).get(
         "events_by_type",
         {},
     ).get(
@@ -890,44 +900,36 @@ def get_event_result(obs: dict, event_name: str) -> dict:
         },
     )
 
+#############################################################################
+# FILTER
 
 def get_loader():
     return current_loader.get()
 
-def get_main_agent_name(branch_str: str) -> str:
-    main_agent_name = branch_str.split(".")[-1].split("[")[0]
-    if main_agent_name == "world":
-        raise ValueError("Cannot infer main agent name from world branch.")
-    return main_agent_name
-
-
-def _resolve_agent_name(branch_str: str, agent_name: Optional[str]) -> str:
+def _resolve_agent_name(agent_name: Optional[str]) -> str:
     if agent_name is not None:
         return agent_name
-
     loader = get_loader()
-    try:
-        return get_main_agent_name(branch_str)
-    except Exception:
+    if getattr(loader, "main_agent_name", None):
+        return loader.main_agent_name
+    else:
         if len(loader.agent_list) == 1:
             return loader.agent_list[0]
         raise ValueError("agent_name is required when using the world branch with multiple agents.")
 
-
-def position(branch_str: str, agent_name: Optional[str] = None, ignore_last_seen: bool = True):
+def position(agent_name: Optional[str] = None, ignore_last_seen: bool = True):
     del ignore_last_seen
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
-    agent_name = _resolve_agent_name(branch_str, agent_name)
+    latest_state, _ = loader.get_latest_state()
+    agent_name = _resolve_agent_name(agent_name)
     try:
         return latest_state["status"][agent_name]["visible"]["position"]["__Vec3__"]
     except Exception:
         return "No data"
 
-
-def thought(branch_str: str) -> str:
+def thought() -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     lines = []
     for tick, event in _iter_events(latest_state):
         if event.get("eventName") != "think":
@@ -937,7 +939,6 @@ def thought(branch_str: str) -> str:
         lines.append(f't={tick}   {event["agentName"]} thought "{event["hidden"]["msg"]}"')
     return "\n".join(lines) if lines else "No thought"
 
-
 def _decode_escaped_unicode_text(value: str) -> str:
     if "\\u" not in value and "\\n" not in value and "\\t" not in value:
         return value
@@ -946,10 +947,9 @@ def _decode_escaped_unicode_text(value: str) -> str:
     except Exception:
         return value
 
-
-def chat_log(branch_str: str) -> str:
+def chat_log() -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     lines = []
     for tick, event in _iter_events(latest_state):
         if event.get("eventName") != "chat":
@@ -958,42 +958,56 @@ def chat_log(branch_str: str) -> str:
         lines.append(f't={tick}   {event["visible"]["agentName"]} said "{msg}"')
     return "\n".join(lines) if lines else "No chats"
 
-
-def inventory(branch_str: str, agent_name: Optional[str] = None) -> str:
+def inventory(agent_name: Optional[str] = None) -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
-    agent_name = _resolve_agent_name(branch_str, agent_name)
+    latest_state, _ = loader.get_latest_state()
+    agent_name = _resolve_agent_name(agent_name)
     try:
         inv = latest_state["status"][agent_name]["hidden"]["inventory"]
         return str(inv) if inv else "Empty"
     except Exception:
         return "No data"
 
-
-def equipment(branch_str: str, agent_name: Optional[str] = None) -> str:
+def equipment(agent_name: Optional[str] = None) -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
-    agent_name = _resolve_agent_name(branch_str, agent_name)
+    latest_state, _ = loader.get_latest_state()
+    agent_name = _resolve_agent_name(agent_name)
     try:
         eq = latest_state["status"][agent_name]["visible"]["equipment"]
         return str(eq) if eq else "Empty"
     except Exception:
         return "No data"
 
-
-def helditem(branch_str: str, agent_name: Optional[str] = None) -> str:
+def helditem(agent_name: Optional[str] = None) -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
-    agent_name = _resolve_agent_name(branch_str, agent_name)
+    latest_state, _ = loader.get_latest_state()
+    agent_name = _resolve_agent_name(agent_name)
     try:
         return str(latest_state["status"][agent_name]["visible"]["equipment"][4])
     except Exception:
         return "No data"
 
+def _get_last_seen(status: dict) -> dict | None:
+    last_seen = status.get("last_seen")
+    if not isinstance(last_seen, dict):
+        return None
+    return last_seen
 
-def chests(branch_str: str) -> str:
+def _get_last_seen_position(status: dict):
+    try:
+        return status["last_seen"]["visible"]["position"]["__Vec3__"]
+    except Exception:
+        return "No data"
+
+def _get_last_seen_helditem(status: dict):
+    try:
+        return str(status["last_seen"]["visible"]["equipment"][4])
+    except Exception:
+        return "No data"
+
+def chests() -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     lines = []
     for row in latest_state["containers"]["__Vec3Map__"]:
         pos = tuple(row["position"])
@@ -1001,28 +1015,38 @@ def chests(branch_str: str) -> str:
         lines.append(f"{pos}: {items}")
     return "\n".join(lines) if lines else "No chest data"
 
-
-def other_players(branch_str: str, agent_name: Optional[str] = None) -> str:
+def other_players(agent_name: Optional[str] = None) -> str: # del
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
-    main_agent_name = _resolve_agent_name(branch_str, agent_name)
+    latest_state, _ = loader.get_latest_state()
+    main_agent_name = _resolve_agent_name(agent_name)
     info = {}
     for agent_name in latest_state["status"]:
         if agent_name == main_agent_name:
             continue
-        if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため：後程修正
+        if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため
             continue
+        status = latest_state["status"][agent_name]
+        last_seen = _get_last_seen(status)
         info[agent_name] = {
-            "position": position(branch_str, agent_name=agent_name),
-            "helditem": helditem(branch_str, agent_name=agent_name),
-            "inventory": inventory(branch_str, agent_name=agent_name),
+            "position": position(agent_name=agent_name),
+            "helditem": helditem(agent_name=agent_name),
+            "last_seen": (
+                {
+                    "tick": last_seen.get("tick"),
+                    "position": _get_last_seen_position(status),
+                    "helditem": _get_last_seen_helditem(status),
+                }
+                if last_seen is not None
+                else "No data"
+            ),
+            "inventory": inventory(agent_name=agent_name),
         }
     return json.dumps(info, ensure_ascii=False, indent=2)
 
 
-def blocks(branch_str: str, block_names: Optional[list[str]] = None) -> str:
+def blocks(block_names: Optional[list[str]] = None) -> str: # del
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     all_blocks = latest_state["blocks"]["__Vec3Map__"]
 
     if isinstance(block_names, str):
@@ -1038,9 +1062,9 @@ def blocks(branch_str: str, block_names: Optional[list[str]] = None) -> str:
     return "\n".join(sections)
 
 
-def block_property(branch_str: str, block_name: str) -> str:
+def block_property(block_name: str) -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     lines = []
     for block in latest_state["blocks"]["__Vec3Map__"]:
         if block["name"] != block_name:
@@ -1098,10 +1122,9 @@ def _event_to_description(event: dict) -> str:
         return json.dumps(visible, ensure_ascii=False)
     return ""
 
-
-def events(branch_str: str) -> str:
+def events() -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     lines = ["time;action;agent_name;description"]
     for tick, event in _iter_events(latest_state):
         event_name = event.get("eventName")
@@ -1111,34 +1134,27 @@ def events(branch_str: str) -> str:
             agent_name = event["visible"]["agentName"]
         else:
             agent_name = event.get("agentName")
-        if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため：後程修正
+        if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため
             continue
         lines.append(f"{tick};{event_name};{agent_name};{_event_to_description(event)}")
     return "\n".join(lines)
 
-
-def latest_state_json(branch_str: str) -> str:
+def latest_state_json() -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     return json.dumps(latest_state, ensure_ascii=False, indent=2)
 
-
-def latest_history_json(branch_str: str) -> str:
+def latest_history_json() -> str:
     loader = get_loader()
-    history, _ = loader.get_latest_history(branch_str)
+    history, _ = loader.get_latest_history()
     return json.dumps(history, ensure_ascii=False, indent=2)
 
-
 def blocks_and_visibilities(
-    branch_str: str,
     block_names: Optional[list[str]] = None,
     blacklist: Optional[list[str]] = None,
-    other_branch_str_list=None,
 ) -> str:
-    del other_branch_str_list
-
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
     all_blocks = latest_state["blocks"]["__Vec3Map__"]
 
     if isinstance(block_names, str):
@@ -1167,23 +1183,18 @@ def blocks_and_visibilities(
         target_names = block_names
 
     sections = []
-
     for name in target_names:
         positions = positions_by_name.get(name)
-
         if positions:
-            sections.append(
-                f"{name}: {json.dumps(positions, ensure_ascii=False)}"
-            )
+            sections.append(f"{name}: {json.dumps(positions, ensure_ascii=False)}")
         else:
             sections.append(f"{name}: Not observed")
 
     return "\n".join(sections)
 
-def events_and_visibilities(branch_str: str, agent_name_i_have: Optional[str] = None) -> str:
-    del agent_name_i_have
+def events_and_visibilities() -> str:
     loader = get_loader()
-    latest_state, _ = loader.get_latest_state(branch_str)
+    latest_state, _ = loader.get_latest_state()
 
     lines = [
         "time;agent_name;agent_position;action;description",
@@ -1191,7 +1202,7 @@ def events_and_visibilities(branch_str: str, agent_name_i_have: Optional[str] = 
 
     has_rows = False
     for tick in sorted(latest_state["events"], key=int):
-        history_at_tick, _ = loader.get_history(branch_str, int(tick))
+        history_at_tick, _ = loader.get_history(int(tick))
         status_at_tick = history_at_tick.get("status", {})
 
         for event in latest_state["events"][tick]:
@@ -1203,8 +1214,8 @@ def events_and_visibilities(branch_str: str, agent_name_i_have: Optional[str] = 
                 agent_name = event["visible"]["agentName"]
             else:
                 agent_name = event.get("agentName", "unknown")
-
-            if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため：後程修正
+            
+            if any(agent_name.startswith(prefix) for prefix in EXCLUDE_NAMES): # Admin等関係のないエージェント情報を排除するため
                 continue
 
             try:
@@ -1251,7 +1262,7 @@ FILTERS = [
 ]
 
 FILTER_DICT = {func.__name__: func for func in FILTERS}
-
+#############################################################################
 
 def load_from_template(
     loader: WorldObservationLoader,
@@ -1279,34 +1290,9 @@ def load_from_template(
             raise ValueError(f"Cannot override filters without allow_filter_override=True: {names}")
 
     env.filters = dict(FILTER_DICT, **extra_filter_dict)
+    env.globals.update(FILTER_DICT)
+    env.globals.update(extra_filter_dict)
     return env.from_string(template).render(variables)
-
-
-def _load_json_file(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def render_template_from_files(
-    world_config_path: Path,
-    raw_observations_path: Path,
-    template_path: Path,
-    *,
-    offset: Optional[list[int]] = None,
-) -> str:
-    world_config = _load_json_file(world_config_path)
-    raw_messages = _load_json_file(raw_observations_path)
-    template = template_path.read_text(encoding="utf-8-sig")
-    if isinstance(raw_messages, dict):
-        raw_messages = [raw_messages]
-
-    runtime = StandaloneWorldObservationRuntime.from_world_config(
-        world_config,
-        offset=list(offset or [0, 0, 0]),
-    )
-    runtime.add_raw_observations(raw_messages, finalize=True)
-    loader = runtime.create_current_observation_loader()
-    return runtime.load_from_template(loader, template)
-
 
 def build_world_config_from_first_blocks_data(blocks_data):
     if blocks_data.get("type") == "block_snapshot":

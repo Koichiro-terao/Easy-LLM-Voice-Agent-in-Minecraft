@@ -194,7 +194,6 @@ INFO:     Uvicorn running on http://0.0.0.0:50021 (Press CTRL+C to quit)
 ### 3.4 Configuring the Config
 
 Enter the OpenAI API key you obtained in the `openai.api_key` or `openairealtime.api_key` field of `src/sally_cfg.yml`.
-You can also use the included config_editor to edit the configuration file.
 
 If you want to have conversations in Japanese, make the following changes.
 

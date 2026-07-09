@@ -1,7 +1,7 @@
 agent:
-  agent_name: "sally"
-  agent_id: "BotPlayer"
-  speaker_id: 23
+  name: "sally"
+  type: "BotPlayer"
+  tts_model_id: 23
   logs_dir: "logs"
   prompts:
     human:

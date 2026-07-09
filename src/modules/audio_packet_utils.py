@@ -25,7 +25,7 @@ def encode_opus_packets(pcm, sample_rate, frame_ms, application="voip"):
     packets.extend(bytes(packet) for packet in codec.encode(None))
     return packets
 
-def decode_opus_packets(opus_packets, sample_rate, logger):
+def decode_opus_packets(opus_packets, sample_rate):
     def normalize_decoded_frame(frame):
         decoded = frame.to_ndarray()
 
@@ -72,12 +72,10 @@ def decode_opus_packets(opus_packets, sample_rate, logger):
 
     return np.concatenate(decoded_chunks)
 
-def split_packets_by_speaker(obs: dict, agent_name: str):
+def split_packets_by_speaker(audio_obs: dict, agent_name: str):
     packets_by_speaker = {}
-    for item in obs.get("items", []):
-        if item.get("type") != "heard_audio_batch":
-            continue
-        listeners = item.get("data", {}).get("listeners", {})
+    for data in audio_obs:
+        listeners = data.get("data", {}).get("listeners", {})
         for listener_name, listener_data in listeners.items():
             for packet in listener_data.get("heard_packets", []):
                 if packet["speaker_name"] == agent_name:
@@ -94,7 +92,7 @@ def split_packets_by_speaker(obs: dict, agent_name: str):
         packets_by_speaker[speaker_name].sort(key=lambda p: p["captured_at_ms"])
     return packets_by_speaker
 
-def mix_timed_chunks(chunks, sample_rate=48000):
+def mix_timed_pcm_chunks_to_single_pcm(chunks, sample_rate=48000):
     if not chunks:
         return np.zeros(0, dtype=np.int16), None, None
     t0 = min(chunk["captured_at_ms"] for chunk in chunks)
@@ -108,5 +106,4 @@ def mix_timed_chunks(chunks, sample_rate=48000):
         end_sample = start_sample + len(chunk["pcm"])
         mixed[start_sample:end_sample] += chunk["pcm"].astype(np.int32)
     mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
-    end_ms = t0 + int(len(mixed) * 1000 / sample_rate)
-    return mixed, t0, end_ms
+    return mixed

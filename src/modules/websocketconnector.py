@@ -9,14 +9,16 @@ class WebsocketConnector:
                  ws_name,
                  host:str="localhost",
                  port:int=8765,
-                 output_data_for_q:bool=True):
+                 output_data_for_q:bool=True,
+                 output_q:queue.Queue=queue.Queue()
+                 ):
         self.ws_name = ws_name
         self.host = host
         self.port = port
         self.max_size=10*1024*1024 # 10MB
         self.bool_output_data_for_q = output_data_for_q
         self.websocket = None
-        self.queue = queue.Queue()
+        self.queue = output_q
 
     def handler(self, websocket): # 接続すると駆動する recv と 同意義
         print(f"[{self.ws_name}] connected")
