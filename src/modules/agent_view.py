@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .belief import BeliefStateHistory, State, advance_state_one_observation
+from .belief import State, _summarize_events
 from .visibility import Vec3BoolMap, get_player_visibility, get_block_visibility
 
 
@@ -132,7 +132,6 @@ def obs_agent_perspective(
     offset,
 ) -> dict:
     objective = obs["objective"]
-
     filtered_obs = deepcopy(obs)
 
     player_relative_positions = {}
@@ -156,28 +155,24 @@ def obs_agent_perspective(
         observer_name,
     )
 
-    filtered_obs = {
-        "globalTick": obs["globalTick"],
-        "objective": {
-            "status": filter_status(
-                objective["status"],
-                observer_name,
-                player_vis,
-                filtered_state,
-                int(obs["globalTick"]),
-            ),
-            "events": filter_events(
-                objective["events"],
-                observer_name,
-                player_vis,
-                block_vis,
-            ),
-            "blocksToUpdate": _get_visible_blocks_to_update(
-                filtered_state,
-                source_state,
-                block_vis,
-            ),
-        },
-    }
+    filtered_obs["objective"]["status"] = filter_status(
+        objective["status"],
+        observer_name,
+        player_vis,
+        filtered_state,
+        int(obs["globalTick"]),
+    )
+    filtered_obs["objective"]["events"] = filter_events(
+        objective["events"],
+        observer_name,
+        player_vis,
+        block_vis,
+    )
+    filtered_obs["objective"]["blocksToUpdate"] = _get_visible_blocks_to_update(
+        filtered_state,
+        source_state,
+        block_vis,
+    )
+    filtered_obs["event_summary"] = _summarize_events(filtered_obs)
 
     return filtered_obs

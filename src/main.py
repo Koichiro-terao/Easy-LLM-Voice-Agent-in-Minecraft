@@ -448,11 +448,24 @@ class Agent:
         return code
     
     def exec_js(self, server_id, name, js, primitives, mineflayer:MineflayerJsClient):
-        mineflayer.exec_js(server_id=server_id, mc_name=name, code=js, primitives=primitives, sync=False, timeout=180)
+        return mineflayer.exec_js(server_id=server_id, mc_name=name, code=js, primitives=primitives, sync=False, timeout=180)
     
     def generate_and_execution_action_js(self, self_belief, base_prompts, disallowed_expressions, self_name, mc_server_id, primitives, mineflayer, llm_module, obs_runtime, logger):
         action_js = self.generate_action_js(self_belief, base_prompts["human"]["generate_action"], base_prompts["system"]["primitive"], disallowed_expressions, self_name, llm_module, obs_runtime, logger)
-        self.exec_js(mc_server_id, self_name, action_js, primitives, mineflayer)
+        exec_result_future = self.exec_js(mc_server_id, self_name, action_js, primitives, mineflayer)
+        exec_result_future.add_done_callback(lambda f: self._on_exec_done(f))
+    
+    def _on_exec_done(self, future):
+        logger = self.modules.logger
+        try:
+            result = future.result()
+        except Exception as e:
+            logger.warning(f"JS execution failed: {e}")
+            return
+        if result.get("success", True):
+            logger.info(f"JS execution succeeded: {result}")
+        elif not result.get("success", False):
+            logger.warning(f"JS execution failed by following reason: {result.get('errorMsg')}")
     ##################################################################################
 
     ################################# belief ####################################
@@ -671,38 +684,36 @@ class Agent:
         resample_state = None
         last_speaker_name = None
         logger.info("Action generation will start when you press Enter.")
+        # print(f"関数実行時モジュール名を取得してprintするようにする")
+
         while True:
             # obs data取得
             obs = self.get_obs_from_minecraft(obs_from_minecraft_to_get_obs_q)
-            if obs is None:
-                continue
-
-            # ASR処理
             if obs is not None:
+                # ASR処理
                 audio_obs = self.get_audio_obs(obs)
                 if audio_obs is not None and audio_obs is not []:
                     pcm_bytes, last_speaker_name, resample_state = self.build_pcm_bytes_data_from_audio_obs(audio_obs, self_name, opus_sample_rate, last_speaker_name, resample_state)
                     if pcm_bytes is not None:
                         self.put_pcm_bytes_to_asr_queue_in_chunks(pcm_bytes, asr_chunk_bytes, pcm_bytes_from_main_to_asr_q)
-                      
-            # 音声情報追加
-            if not self_audio_final_result_from_asr_to_accumulate_audio_q.empty():
-                result_asr = self.get_asr_results_from_queue(self_audio_final_result_from_asr_to_accumulate_audio_q)
-                self.accumulate_self_audio(last_speaker_name, result_asr, obs_runtime)
-    
-            # 観測情報追加
-            if obs is not None:
+                    
+                # 音声情報追加
+                if not self_audio_final_result_from_asr_to_accumulate_audio_q.empty():
+                    result_asr = self.get_asr_results_from_queue(self_audio_final_result_from_asr_to_accumulate_audio_q)
+                    self.accumulate_self_audio(last_speaker_name, result_asr, obs_runtime)
+        
+                # 観測情報追加
                 vision_self, world_belief, self_belief = self.accumulate_world_self_vision(obs, world_belief, self_belief, self_name, env_box, offset, obs_runtime)
-            
-            # 観測に基づく自己発話の音声合成化
-            if vision_self is not None:
-                latest_send_speech_for_minecraft_thread = self.speak_own_chat_message(vision_self, self_name, tts_speaker_id, frame_sec, sample_rate, frame_millis, application, stop_tts_audio_stream_event, latest_send_speech_for_minecraft_thread, tts_module, send_self_speech_ws)
+                
+                # 観測に基づく自己発話の音声合成化
+                if vision_self is not None:
+                    latest_send_speech_for_minecraft_thread = self.speak_own_chat_message(vision_self, self_name, tts_speaker_id, frame_sec, sample_rate, frame_millis, application, stop_tts_audio_stream_event, latest_send_speech_for_minecraft_thread, tts_module, send_self_speech_ws)
 
-            # 行動生成・実行
-            if start_generation_action_event.is_set():
-                start_generation_action_event.clear()
-                generate_and_execution_action_js_thread = threading.Thread(target=self.generate_and_execution_action_js, args=(self_belief, base_prompts, disallowed_expressions, self_name, mc_server_id, primitives, mineflayer, llm_module, obs_runtime, logger,))
-                generate_and_execution_action_js_thread.start()
+                # 行動生成・実行
+                if start_generation_action_event.is_set():
+                    start_generation_action_event.clear()
+                    generate_and_execution_action_js_thread = threading.Thread(target=self.generate_and_execution_action_js, args=(self_belief, base_prompts, disallowed_expressions, self_name, mc_server_id, primitives, mineflayer, llm_module, obs_runtime, logger,))
+                    generate_and_execution_action_js_thread.start()
 
 def main():
     parser = argparse.ArgumentParser()

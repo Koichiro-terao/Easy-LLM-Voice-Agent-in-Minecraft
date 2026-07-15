@@ -5,10 +5,19 @@ import math
 from typing import Any, Sequence
 
 import numpy as np
-from numba import njit, prange
+from numba import njit, prange, types
 
 
 PLAYER_EYE_HEIGHT = 1.6
+_INT32_VECTOR = types.int32[::1]
+_UINT8_VECTOR = types.uint8[::1]
+_FLOAT64_VECTOR = types.float64[::1]
+#_FACE_SAMPLE_U = np.array([0.01, 0.01, 0.99, 0.99, 0.5], dtype=np.float64)
+#_FACE_SAMPLE_V = np.array([0.01, 0.99, 0.01, 0.99, 0.5], dtype=np.float64)
+_FACE_SAMPLE_U = np.array([0.5], dtype=np.float64)
+_FACE_SAMPLE_V = np.array([0.5], dtype=np.float64)
+
+
 
 _TRANSPARENT_BLOCK_NAMES = {
     "air",
@@ -225,7 +234,17 @@ def _clip_abs_box(
     return origin, max_corner, size.astype(np.int32, copy=False)
 
 
-@njit(cache=True, fastmath=True)
+@njit(
+    _UINT8_VECTOR(
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _UINT8_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+    ),
+    fastmath=True,
+)
 def _build_occ_grid_jit(
     xs: np.ndarray,
     ys: np.ndarray,
@@ -265,7 +284,20 @@ def _build_occlusion_data(
     return _build_occ_grid_jit(xs, ys, zs, opaque, origin, size)
 
 
-@njit(cache=True, fastmath=True, inline="always")
+@njit(
+    types.boolean(
+        types.float64,
+        types.float64,
+        types.float64,
+        types.float64,
+        types.float64,
+        types.float64,
+        _INT32_VECTOR,
+        _UINT8_VECTOR,
+        _INT32_VECTOR,
+    ),
+    fastmath=True,
+)
 def _ray_visible_occ(
     ox: float,
     oy: float,
@@ -350,7 +382,115 @@ def _ray_visible_occ(
             return False
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(fastmath=True)
+def _face_points_visible(
+    ex: float,
+    ey: float,
+    ez: float,
+    axis: int,
+    face_coord: float,
+    bx: float,
+    by: float,
+    bz: float,
+    origin: np.ndarray,
+    occ: np.ndarray,
+    size: np.ndarray,
+) -> bool:
+    if axis == 0:
+        for i in range(_FACE_SAMPLE_U.shape[0]):
+            if _ray_visible_occ(
+                ex, ey, ez,
+                face_coord,
+                by + _FACE_SAMPLE_U[i],
+                bz + _FACE_SAMPLE_V[i],
+                origin, occ, size,
+            ):
+                return True
+        return False
+
+    if axis == 1:
+        for i in range(_FACE_SAMPLE_U.shape[0]):
+            if _ray_visible_occ(
+                ex, ey, ez,
+                bx + _FACE_SAMPLE_U[i],
+                face_coord,
+                bz + _FACE_SAMPLE_V[i],
+                origin, occ, size,
+            ):
+                return True
+        return False
+
+    if axis == 2:
+        for i in range(_FACE_SAMPLE_U.shape[0]):
+            if _ray_visible_occ(
+                ex, ey, ez,
+                bx + _FACE_SAMPLE_U[i],
+                by + _FACE_SAMPLE_V[i],
+                face_coord,
+                origin, occ, size,
+            ):
+                return True
+        return False
+
+    raise ValueError("axis must be 0, 1, or 2")
+
+
+@njit(fastmath=True, inline="always")
+def _block_face_points_visible(
+    ex: float,
+    ey: float,
+    ez: float,
+    x: int,
+    y: int,
+    z: int,
+    origin: np.ndarray,
+    occ: np.ndarray,
+    size: np.ndarray,
+) -> bool:
+    bx = float(x)
+    by = float(y)
+    bz = float(z)
+
+    if ex < bx:
+        if _face_points_visible(ex, ey, ez, 0, bx, bx, by, bz, origin, occ, size):
+            return True
+    elif ex > bx + 1.0:
+        if _face_points_visible(ex, ey, ez, 0, bx + 1.0, bx, by, bz, origin, occ, size):
+            return True
+
+    if ey < by:
+        if _face_points_visible(ex, ey, ez, 1, by, bx, by, bz, origin, occ, size):
+            return True
+    elif ey > by + 1.0:
+        if _face_points_visible(ex, ey, ez, 1, by + 1.0, bx, by, bz, origin, occ, size):
+            return True
+
+    if ez < bz:
+        if _face_points_visible(ex, ey, ez, 2, bz, bx, by, bz, origin, occ, size):
+            return True
+    elif ez > bz + 1.0:
+        if _face_points_visible(ex, ey, ez, 2, bz + 1.0, bx, by, bz, origin, occ, size):
+            return True
+
+    return False
+
+
+@njit(
+    _UINT8_VECTOR(
+        _FLOAT64_VECTOR,
+        _INT32_VECTOR,
+        _UINT8_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        types.float64,
+    ),
+    fastmath=True,
+    parallel=True,
+)
 def _mark_visible_blocks_jit(
     eye_pos: np.ndarray,
     origin: np.ndarray,
@@ -392,11 +532,25 @@ def _mark_visible_blocks_jit(
 
         if _ray_visible_occ(ex, ey, ez, tx, ty, tz, origin, occ, size):
             visible[i] = 1
+            continue
+
+        if _block_face_points_visible(ex, ey, ez, x, y, z, origin, occ, size):
+            visible[i] = 1
 
     return visible
 
 
-@njit(cache=True, fastmath=True)
+@njit(
+    types.int64[::1](
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+        _UINT8_VECTOR,
+        _INT32_VECTOR,
+        _INT32_VECTOR,
+    ),
+    fastmath=True,
+)
 def _collect_visible_indices_jit(
     xs: np.ndarray,
     ys: np.ndarray,
